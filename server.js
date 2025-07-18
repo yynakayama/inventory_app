@@ -5,6 +5,8 @@ require('dotenv').config();
 
 // ルーターのインポート
 const partsRoutes = require('./src/routes/parts');
+const inventoryRoutes = require('./src/routes/inventory'); 
+
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -79,7 +81,8 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: {
       health: '/api/health',
-      parts: '/api/parts'
+      parts: '/api/parts',
+      inventory: '/api/inventory'
     },
     timestamp: new Date().toISOString()
   });
@@ -123,6 +126,7 @@ app.get('/api/health', (req, res) => {
 
 // 部品関連APIルートを設定
 app.use('/api/parts', partsRoutes);
+app.use('/api/inventory', inventoryRoutes);
 
 // サーバー起動
 app.listen(PORT, '0.0.0.0', () => {
