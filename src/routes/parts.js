@@ -1,16 +1,81 @@
 // ==========================================
-// 部品マスタ関連APIルート
+// 部品マスタ関連APIルート（部品コードのみ設計版）
+// 部品コードのみ必須、仕様は任意
 // ==========================================
 
 const express = require('express');
 const router = express.Router();
 
-// 1. 部品一覧取得 GET /api/parts
-router.get('/', (req, res) => {
+// 1. 部品カテゴリ一覧取得 GET /api/parts/categories
+router.get('/categories', (req, res) => {
   const query = `
     SELECT 
+      category_code,
+      category_name,
+      sort_order
+    FROM part_categories 
+    WHERE is_active = TRUE
+    ORDER BY sort_order
+  `;
+  
+  req.db.query(query, (err, results) => {
+    if (err) {
+      console.error('カテゴリ一覧取得エラー:', err.message);
+      res.status(500).json({ 
+        error: 'データベースエラー',
+        message: 'カテゴリ一覧の取得に失敗しました',
+        details: err.message
+      });
+      return;
+    }
+    
+    res.json({
+      success: true,
+      data: results,
+      count: results.length
+    });
+  });
+});
+
+// 2. 部品コード体系チェック GET /api/parts/code-patterns
+router.get('/code-patterns', (req, res) => {
+  const query = `
+    SELECT 
+      SUBSTRING_INDEX(part_code, '-', 1) as code_prefix,
+      COUNT(*) as count,
+      GROUP_CONCAT(part_code ORDER BY part_code SEPARATOR ',') as examples
+    FROM parts
+    WHERE is_active = TRUE
+    GROUP BY SUBSTRING_INDEX(part_code, '-', 1)
+    ORDER BY count DESC
+  `;
+  
+  req.db.query(query, (err, results) => {
+    if (err) {
+      console.error('部品コード体系取得エラー:', err.message);
+      res.status(500).json({ 
+        error: 'データベースエラー',
+        message: '部品コード体系の取得に失敗しました',
+        details: err.message
+      });
+      return;
+    }
+    
+    res.json({
+      success: true,
+      data: results,
+      message: '部品コードの命名体系を表示'
+    });
+  });
+});
+
+// 2. 部品一覧取得 GET /api/parts
+router.get('/', (req, res) => {
+  const { search, category, limit = 100 } = req.query;
+  
+  let query = `
+    SELECT 
       part_code,
-      part_name,
       specification,
       unit,
       lead_time_days,
@@ -22,10 +87,26 @@ router.get('/', (req, res) => {
       updated_at
     FROM parts 
     WHERE is_active = TRUE
-    ORDER BY part_code
   `;
   
-  req.db.query(query, (err, results) => {
+  const params = [];
+  
+  // 検索条件追加（部品コードまたは仕様での検索）
+  if (search) {
+    query += ` AND (part_code LIKE ? OR specification LIKE ?)`;
+    params.push(`%${search}%`, `%${search}%`);
+  }
+  
+  // カテゴリフィルター
+  if (category) {
+    query += ` AND category = ?`;
+    params.push(category);
+  }
+  
+  query += ` ORDER BY part_code LIMIT ?`;
+  params.push(parseInt(limit));
+  
+  req.db.query(query, params, (err, results) => {
     if (err) {
       console.error('部品一覧取得エラー:', err.message);
       res.status(500).json({ 
@@ -40,19 +121,19 @@ router.get('/', (req, res) => {
       success: true,
       data: results,
       count: results.length,
+      search_params: { search, category, limit },
       timestamp: new Date().toISOString()
     });
   });
 });
 
-// 2. 特定部品取得 GET /api/parts/:code
+// 3. 特定部品取得 GET /api/parts/:code
 router.get('/:code', (req, res) => {
   const partCode = req.params.code;
   
   const query = `
     SELECT 
       part_code,
-      part_name,
       specification,
       unit,
       lead_time_days,
@@ -92,25 +173,25 @@ router.get('/:code', (req, res) => {
   });
 });
 
-// 3. 新規部品登録 POST /api/parts
+// 4. 新規部品登録 POST /api/parts
 router.post('/', (req, res) => {
   const {
     part_code,
-    part_name,
     specification,
     unit = '個',
     lead_time_days = 7,
     safety_stock = 0,
     supplier,
     category = 'MECH',
-    unit_price = 0.00
+    unit_price = 0.00,
+    remarks
   } = req.body;
   
-  // 必須項目チェック
-  if (!part_code || !part_name) {
+  // 必須項目チェック（部品コードのみ）
+  if (!part_code) {
     res.status(400).json({
       error: '入力エラー',
-      message: '部品コードと部品名は必須です'
+      message: '部品コードは必須です'
     });
     return;
   }
@@ -118,27 +199,27 @@ router.post('/', (req, res) => {
   const query = `
     INSERT INTO parts (
       part_code,
-      part_name,
       specification,
       unit,
       lead_time_days,
       safety_stock,
       supplier,
       category,
-      unit_price
+      unit_price,
+      remarks
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
   
   const values = [
     part_code,
-    part_name,
     specification,
     unit,
     lead_time_days,
     safety_stock,
     supplier,
     category,
-    unit_price
+    unit_price,
+    remarks
   ];
   
   req.db.query(query, values, (err, results) => {
@@ -168,45 +249,10 @@ router.post('/', (req, res) => {
   });
 });
 
-// 4. 部品更新 PUT /api/parts/:code
+// 5. 部品更新 PUT /api/parts/:code
 router.put('/:code', (req, res) => {
   const partCode = req.params.code;
   const {
-    part_name,
-    specification,
-    unit,
-    lead_time_days,
-    safety_stock,
-    supplier,
-    category,
-    unit_price
-  } = req.body;
-  
-  // 必須項目チェック
-  if (!part_name) {
-    res.status(400).json({
-      error: '入力エラー',
-      message: '部品名は必須です'
-    });
-    return;
-  }
-  
-  const query = `
-    UPDATE parts SET
-      part_name = ?,
-      specification = ?,
-      unit = ?,
-      lead_time_days = ?,
-      safety_stock = ?,
-      supplier = ?,
-      category = ?,
-      unit_price = ?,
-      updated_at = CURRENT_TIMESTAMP
-    WHERE part_code = ? AND is_active = TRUE
-  `;
-  
-  const values = [
-    part_name,
     specification,
     unit,
     lead_time_days,
@@ -214,6 +260,35 @@ router.put('/:code', (req, res) => {
     supplier,
     category,
     unit_price,
+    remarks
+  } = req.body;
+  
+  // 必須項目チェック（なし - すべて任意更新）
+  // 部品コードは変更不可、その他はすべて任意
+  
+  const query = `
+    UPDATE parts SET
+      specification = ?,
+      unit = ?,
+      lead_time_days = ?,
+      safety_stock = ?,
+      supplier = ?,
+      category = ?,
+      unit_price = ?,
+      remarks = ?,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE part_code = ? AND is_active = TRUE
+  `;
+  
+  const values = [
+    specification,
+    unit,
+    lead_time_days,
+    safety_stock,
+    supplier,
+    category,
+    unit_price,
+    remarks,
     partCode
   ];
   
@@ -244,7 +319,7 @@ router.put('/:code', (req, res) => {
   });
 });
 
-// 5. 部品削除 DELETE /api/parts/:code（論理削除）
+// 6. 部品削除 DELETE /api/parts/:code（論理削除）
 router.delete('/:code', (req, res) => {
   const partCode = req.params.code;
   
