@@ -68,33 +68,3 @@ INSERT INTO system_settings (setting_key, setting_value, setting_type, descripti
 ON DUPLICATE KEY UPDATE
     setting_value = VALUES(setting_value),
     updated_at = CURRENT_TIMESTAMP;
-
--- 4. データ確認用クエリ（コメントアウト済み）
-/*
--- 基本テーブル確認
-SELECT 'connection_test' as table_name, COUNT(*) as record_count FROM connection_test
-UNION ALL
-SELECT 'users' as table_name, COUNT(*) as record_count FROM users
-UNION ALL
-SELECT 'system_settings' as table_name, COUNT(*) as record_count FROM system_settings;
-
--- ユーザー一覧確認
-SELECT 
-    id,
-    username,
-    email,
-    role,
-    is_active,
-    created_at
-FROM users 
-ORDER BY role, username;
-
--- システム設定確認
-SELECT 
-    setting_key,
-    setting_value,
-    setting_type,
-    description
-FROM system_settings 
-ORDER BY setting_key;
-*/
