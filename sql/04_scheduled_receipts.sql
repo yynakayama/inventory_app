@@ -91,7 +91,7 @@ INSERT INTO scheduled_receipts (
 ('SUS304-M6-20-HEX', 'ボルト商事株式会社', 500, '2024-07-15', '2024-07-25', '緊急発注'),
 
 -- 樹脂部品の発注（納期回答済み）
-('RESIN-WASHER-M6', '樹脂加工センター', 200, '2024-07-10', '2024-07-20', '定期発注');
+('LED-WHITE-5MM', '東京電子商事', 200, '2024-07-10', '2024-07-20', '定期発注');
 
 -- 納期回答例：予定数量・予定日を更新してステータス変更
 UPDATE scheduled_receipts 
@@ -100,7 +100,7 @@ SET
     scheduled_date = '2024-07-22',
     status = '入荷予定',
     updated_at = CURRENT_TIMESTAMP
-WHERE part_code = 'RESIN-WASHER-M6' 
+WHERE part_code = 'LED-WHITE-5MM' 
   AND status = '納期回答待ち';
 
 -- 確認用クエリ
