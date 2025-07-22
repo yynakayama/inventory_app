@@ -6,6 +6,7 @@ require('dotenv').config();
 // ルーターのインポート
 const partsRoutes = require('./src/routes/parts');
 const inventoryRoutes = require('./src/routes/inventory'); 
+const scheduled_receiptsRoutes = require('./src/routes/scheduled-receipts');
 
 
 const app = express();
@@ -127,6 +128,7 @@ app.get('/api/health', (req, res) => {
 // 部品関連APIルートを設定
 app.use('/api/parts', partsRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/scheduled-receipts', scheduled_receiptsRoutes);
 
 // サーバー起動
 app.listen(PORT, '0.0.0.0', () => {
