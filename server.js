@@ -7,6 +7,7 @@ require('dotenv').config();
 const partsRoutes = require('./src/routes/parts');
 const inventoryRoutes = require('./src/routes/inventory'); 
 const scheduled_receiptsRoutes = require('./src/routes/scheduled-receipts');
+const availableInventoryRoutes = require('./src/routes/available-inventory');
 
 
 const app = express();
@@ -129,6 +130,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/parts', partsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/scheduled-receipts', scheduled_receiptsRoutes);
+app.use('/api/available-inventory', availableInventoryRoutes);
 
 // サーバー起動
 app.listen(PORT, '0.0.0.0', () => {

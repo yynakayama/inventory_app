@@ -311,7 +311,7 @@ router.put('/:id/mark-received', async (req, res) => {
     if (orderRows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: '指定された予定入荷が見つかりません'
+        message: '指定された入荷予定が見つかりません'
       });
     }
     
@@ -451,7 +451,7 @@ router.put('/:id/cancel', async (req, res) => {
 });
 
 /**
- * 予定入荷詳細取得
+ * 入荷予定詳細取得
  * GET /api/scheduled-receipts/:id
  */
 router.get('/:id', async (req, res) => {
@@ -476,7 +476,7 @@ router.get('/:id', async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: '指定された予定入荷が見つかりません'
+        message: '指定された入荷予定が見つかりません'
       });
     }
     
@@ -486,10 +486,10 @@ router.get('/:id', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('予定入荷詳細取得エラー:', error);
+    console.error('入荷予定詳細取得エラー:', error);
     res.status(500).json({
       success: false,
-      message: '予定入荷詳細の取得に失敗しました',
+      message: '入荷予定詳細の取得に失敗しました',
       error: error.message
     });
   } finally {
