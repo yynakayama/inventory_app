@@ -1,17 +1,8 @@
 const express = require('express');
-const mysql = require('mysql2/promise');
 const router = express.Router();
 
-// データベース接続設定
-const dbConfig = {
-    host: 'mysql',
-    user: 'root',
-    password: 'password',
-    database: 'inventory_db'
-};
-
 /**
- * 利用可能在庫計算API
+ * 利用可能在庫計算API（統一版）
  * 
  * 計算式: 利用可能在庫 = 現在在庫 + 入荷予定 - 予約済み在庫
  * 
@@ -25,56 +16,64 @@ const dbConfig = {
  * - as_of_date: 基準日（YYYY-MM-DD形式、省略時は今日）
  * - include_negative: 負の在庫も含むか（true/false、デフォルト: true）
  */
-router.get('/', async (req, res) => {
-    let connection;
+router.get('/', (req, res) => {
+    // クエリパラメータの取得と検証
+    const { as_of_date, include_negative = 'true' } = req.query;
     
-    try {
-        // クエリパラメータの取得と検証
-        const { as_of_date, include_negative = 'true' } = req.query;
-        
-        // 基準日の設定（省略時は今日）
-        const baseDate = as_of_date || new Date().toISOString().split('T')[0];
-        
-        // 日付形式の簡易バリデーション
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(baseDate)) {
-            return res.status(400).json({ 
-                error: '日付形式が正しくありません。YYYY-MM-DD形式で入力してください。',
-                example: '2024-07-23'
-            });
-        }
+    // 基準日の設定（省略時は今日）
+    const baseDate = as_of_date || new Date().toISOString().split('T')[0];
+    
+    // 日付形式の簡易バリデーション
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(baseDate)) {
+        return res.status(400).json({ 
+            error: '日付形式が正しくありません。YYYY-MM-DD形式で入力してください。',
+            example: '2024-07-23'
+        });
+    }
 
-        connection = await mysql.createConnection(dbConfig);
-
-        /**
-         * 1. メインテーブル: inventory (在庫管理)
-         * 2. JOIN1: parts (部品マスタ) - 部品名などの詳細情報取得
-         * 3. JOIN2: scheduled_receipts (予定入荷) - 集計が必要なため LEFT JOIN
-         * 
-         * GROUP BY の理由:
-         * - scheduled_receipts は 1つの部品に対して複数レコードの可能性
-         * - SUM() で予定入荷の合計を計算
-         * 
-         * COALESCE の役割:
-         * - LEFT JOIN で該当データがない場合、NULL になる
-         * - NULL + 数値 = NULL になるため、0 に変換
-         */
-        const query = `
-            SELECT 
-                i.part_code,
-                p.specification,
-                p.unit,
-                p.safety_stock,
-                p.lead_time_days,
-                i.current_stock,
-                i.reserved_stock,
+    /**
+     * 1. メインテーブル: inventory (在庫管理)
+     * 2. JOIN1: parts (部品マスタ) - 部品名などの詳細情報取得
+     * 3. JOIN2: scheduled_receipts (予定入荷) - 集計が必要なため LEFT JOIN
+     * 
+     * GROUP BY の理由:
+     * - scheduled_receipts は 1つの部品に対して複数レコードの可能性
+     * - SUM() で予定入荷の合計を計算
+     * 
+     * COALESCE の役割:
+     * - LEFT JOIN で該当データがない場合、NULL になる
+     * - NULL + 数値 = NULL になるため、0 に変換
+     */
+    let query = `
+        SELECT 
+            i.part_code,
+            p.specification,
+            p.unit,
+            p.safety_stock,
+            p.lead_time_days,
+            i.current_stock,
+            i.reserved_stock,
+            COALESCE(SUM(
+                CASE 
+                    WHEN sr.status = '入荷予定' AND sr.scheduled_date <= ? 
+                    THEN sr.scheduled_quantity 
+                    ELSE 0 
+                END
+            ), 0) AS scheduled_receipts,
+            (
+                i.current_stock + 
                 COALESCE(SUM(
                     CASE 
                         WHEN sr.status = '入荷予定' AND sr.scheduled_date <= ? 
                         THEN sr.scheduled_quantity 
                         ELSE 0 
                     END
-                ), 0) AS scheduled_receipts,
-                (
+                ), 0) - 
+                i.reserved_stock
+            ) AS available_stock,
+            -- 安全在庫を下回っているかの判定
+            CASE 
+                WHEN (
                     i.current_stock + 
                     COALESCE(SUM(
                         CASE 
@@ -84,50 +83,54 @@ router.get('/', async (req, res) => {
                         END
                     ), 0) - 
                     i.reserved_stock
-                ) AS available_stock,
-                -- 安全在庫を下回っているかの判定
-                CASE 
-                    WHEN (
-                        i.current_stock + 
-                        COALESCE(SUM(
-                            CASE 
-                                WHEN sr.status = '入荷予定' AND sr.scheduled_date <= ? 
-                                THEN sr.scheduled_quantity 
-                                ELSE 0 
-                            END
-                        ), 0) - 
-                        i.reserved_stock
-                    ) < p.safety_stock 
-                    THEN 'SHORTAGE' 
-                    ELSE 'OK' 
-                END AS stock_status,
-                -- 基準日
-                ? AS as_of_date
-            FROM inventory i
-            LEFT JOIN parts p ON i.part_code = p.part_code
-            LEFT JOIN scheduled_receipts sr ON i.part_code = sr.part_code
-            WHERE p.is_active = TRUE
-            GROUP BY 
-                i.part_code, 
-                p.specification, 
-                p.unit, 
-                p.safety_stock, 
-                p.lead_time_days,
-                i.current_stock, 
-                i.reserved_stock
-            ${include_negative === 'false' ? 'HAVING available_stock >= 0' : ''}
-            ORDER BY 
-                stock_status DESC,  -- SHORTAGE を先に表示
-                available_stock ASC -- 在庫少ない順
-        `;
+                ) < p.safety_stock 
+                THEN 'SHORTAGE' 
+                ELSE 'OK' 
+            END AS stock_status,
+            -- 基準日
+            ? AS as_of_date
+        FROM inventory i
+        LEFT JOIN parts p ON i.part_code = p.part_code
+        LEFT JOIN scheduled_receipts sr ON i.part_code = sr.part_code
+        WHERE p.is_active = TRUE
+        GROUP BY 
+            i.part_code, 
+            p.specification, 
+            p.unit, 
+            p.safety_stock, 
+            p.lead_time_days,
+            i.current_stock, 
+            i.reserved_stock
+    `;
 
-        // パラメータは同じ値を複数回使用するため配列で指定
-        const [results] = await connection.execute(query, [
-            baseDate,  // scheduled_receipts の日付条件1
-            baseDate,  // scheduled_receipts の日付条件2  
-            baseDate,  // scheduled_receipts の日付条件3
-            baseDate   // as_of_date 表示用
-        ]);
+    // 負の在庫を除外するかどうか
+    if (include_negative === 'false') {
+        query += ` HAVING available_stock >= 0`;
+    }
+
+    query += `
+        ORDER BY 
+            stock_status DESC,  -- SHORTAGE を先に表示
+            available_stock ASC -- 在庫少ない順
+    `;
+
+    // パラメータは同じ値を複数回使用するため配列で指定
+    const params = [
+        baseDate,  // scheduled_receipts の日付条件1
+        baseDate,  // scheduled_receipts の日付条件2  
+        baseDate,  // scheduled_receipts の日付条件3
+        baseDate   // as_of_date 表示用
+    ];
+
+    req.db.query(query, params, (err, results) => {
+        if (err) {
+            console.error('利用可能在庫一覧取得エラー:', err.message);
+            res.status(500).json({ 
+                error: 'サーバーエラーが発生しました',
+                details: err.message 
+            });
+            return;
+        }
 
         // レスポンス用のデータ整形
         const responseData = {
@@ -156,18 +159,7 @@ router.get('/', async (req, res) => {
         };
 
         res.json(responseData);
-
-    } catch (error) {
-        console.error('利用可能在庫一覧取得エラー:', error);
-        res.status(500).json({ 
-            error: 'サーバーエラーが発生しました',
-            details: error.message 
-        });
-    } finally {
-        if (connection) {
-            await connection.end();
-        }
-    }
+    });
 });
 
 /**
@@ -179,59 +171,60 @@ router.get('/', async (req, res) => {
  * - 在庫推移の予測
  * - 発注推奨情報
  */
-router.get('/:part_code', async (req, res) => {
-    let connection;
+router.get('/:part_code', (req, res) => {
+    const { part_code } = req.params;
+    const { as_of_date } = req.query;
     
-    try {
-        const { part_code } = req.params;
-        const { as_of_date } = req.query;
-        
-        // 基準日の設定
-        const baseDate = as_of_date || new Date().toISOString().split('T')[0];
-        
-        connection = await mysql.createConnection(dbConfig);
+    // 基準日の設定
+    const baseDate = as_of_date || new Date().toISOString().split('T')[0];
 
-        // 1. 基本的な在庫情報取得
-        const inventoryQuery = `
-            SELECT 
-                i.part_code,
-                p.specification,
-                p.unit,
-                p.safety_stock,
-                p.lead_time_days,
-                p.supplier,
-                i.current_stock,
-                i.reserved_stock,
+    // 1. 基本的な在庫情報取得
+    const inventoryQuery = `
+        SELECT 
+            i.part_code,
+            p.specification,
+            p.unit,
+            p.safety_stock,
+            p.lead_time_days,
+            p.supplier,
+            i.current_stock,
+            i.reserved_stock,
+            COALESCE(SUM(
+                CASE 
+                    WHEN sr.status = '入荷予定' AND sr.scheduled_date <= ? 
+                    THEN sr.scheduled_quantity 
+                    ELSE 0 
+                END
+            ), 0) AS scheduled_receipts,
+            (
+                i.current_stock + 
                 COALESCE(SUM(
                     CASE 
                         WHEN sr.status = '入荷予定' AND sr.scheduled_date <= ? 
                         THEN sr.scheduled_quantity 
                         ELSE 0 
                     END
-                ), 0) AS scheduled_receipts,
-                (
-                    i.current_stock + 
-                    COALESCE(SUM(
-                        CASE 
-                            WHEN sr.status = '入荷予定' AND sr.scheduled_date <= ? 
-                            THEN sr.scheduled_quantity 
-                            ELSE 0 
-                        END
-                    ), 0) - 
-                    i.reserved_stock
-                ) AS available_stock
-            FROM inventory i
-            LEFT JOIN parts p ON i.part_code = p.part_code
-            LEFT JOIN scheduled_receipts sr ON i.part_code = sr.part_code
-            WHERE i.part_code = ?
-            GROUP BY 
-                i.part_code, p.specification, p.unit, p.safety_stock, 
-                p.lead_time_days, p.supplier, i.current_stock, i.reserved_stock
-        `;
+                ), 0) - 
+                i.reserved_stock
+            ) AS available_stock
+        FROM inventory i
+        LEFT JOIN parts p ON i.part_code = p.part_code
+        LEFT JOIN scheduled_receipts sr ON i.part_code = sr.part_code
+        WHERE i.part_code = ?
+        GROUP BY 
+            i.part_code, p.specification, p.unit, p.safety_stock, 
+            p.lead_time_days, p.supplier, i.current_stock, i.reserved_stock
+    `;
 
-        const [inventoryResults] = await connection.execute(inventoryQuery, [
-            baseDate, baseDate, part_code
-        ]);
+    req.db.query(inventoryQuery, [baseDate, baseDate, part_code], (err, inventoryResults) => {
+        if (err) {
+            console.error('在庫情報取得エラー:', err.message);
+            res.status(500).json({ 
+                error: 'サーバーエラーが発生しました',
+                details: err.message 
+            });
+            return;
+        }
 
         if (inventoryResults.length === 0) {
             return res.status(404).json({ 
@@ -263,73 +256,80 @@ router.get('/:part_code', async (req, res) => {
                 scheduled_date ASC
         `;
 
-        const [receiptsResults] = await connection.execute(receiptsQuery, [part_code]);
+        req.db.query(receiptsQuery, [part_code], (err, receiptsResults) => {
+            if (err) {
+                console.error('予定入荷取得エラー:', err.message);
+                res.status(500).json({ 
+                    error: '予定入荷情報の取得に失敗しました',
+                    details: err.message 
+                });
+                return;
+            }
 
-        // 3. 最近の在庫変動履歴取得（直近10件）
-        const transactionQuery = `
-            SELECT 
-                transaction_type,
-                quantity,
-                before_stock,
-                after_stock,
-                transaction_date,
-                remarks
-            FROM inventory_transactions 
-            WHERE part_code = ? 
-            ORDER BY transaction_date DESC 
-            LIMIT 10
-        `;
+            // 3. 最近の在庫変動履歴取得（直近10件）
+            const transactionQuery = `
+                SELECT 
+                    transaction_type,
+                    quantity,
+                    before_stock,
+                    after_stock,
+                    transaction_date,
+                    remarks
+                FROM inventory_transactions 
+                WHERE part_code = ? 
+                ORDER BY transaction_date DESC 
+                LIMIT 10
+            `;
 
-        const [transactionResults] = await connection.execute(transactionQuery, [part_code]);
+            req.db.query(transactionQuery, [part_code], (err, transactionResults) => {
+                if (err) {
+                    console.error('在庫履歴取得エラー:', err.message);
+                    res.status(500).json({ 
+                        error: '在庫履歴の取得に失敗しました',
+                        details: err.message 
+                    });
+                    return;
+                }
 
-        // 4. 発注推奨計算
-        const shouldOrder = inventoryData.available_stock < inventoryData.safety_stock;
-        const recommendedOrderQuantity = shouldOrder 
-            ? inventoryData.safety_stock * 2 - inventoryData.available_stock 
-            : 0;
+                // 4. 発注推奨計算
+                const shouldOrder = inventoryData.available_stock < inventoryData.safety_stock;
+                const recommendedOrderQuantity = shouldOrder 
+                    ? inventoryData.safety_stock * 2 - inventoryData.available_stock 
+                    : 0;
 
-        // レスポンスデータの構築
-        const responseData = {
-            part_info: {
-                part_code: inventoryData.part_code,
-                specification: inventoryData.specification,
-                unit: inventoryData.unit,
-                supplier: inventoryData.supplier,
-                lead_time_days: inventoryData.lead_time_days
-            },
-            inventory_calculation: {
-                as_of_date: baseDate,
-                current_stock: inventoryData.current_stock,
-                reserved_stock: inventoryData.reserved_stock,
-                scheduled_receipts: inventoryData.scheduled_receipts,
-                available_stock: inventoryData.available_stock,
-                safety_stock: inventoryData.safety_stock,
-                calculation_formula: `${inventoryData.current_stock} + ${inventoryData.scheduled_receipts} - ${inventoryData.reserved_stock} = ${inventoryData.available_stock}`
-            },
-            status_analysis: {
-                stock_status: inventoryData.available_stock >= inventoryData.safety_stock ? 'OK' : 'SHORTAGE',
-                should_order: shouldOrder,
-                recommended_order_quantity: recommendedOrderQuantity,
-                estimated_stockout_risk: inventoryData.available_stock < 0 ? 'HIGH' : 
-                                       inventoryData.available_stock < inventoryData.safety_stock ? 'MEDIUM' : 'LOW'
-            },
-            scheduled_receipts: receiptsResults,
-            recent_transactions: transactionResults
-        };
+                // レスポンスデータの構築
+                const responseData = {
+                    part_info: {
+                        part_code: inventoryData.part_code,
+                        specification: inventoryData.specification,
+                        unit: inventoryData.unit,
+                        supplier: inventoryData.supplier,
+                        lead_time_days: inventoryData.lead_time_days
+                    },
+                    inventory_calculation: {
+                        as_of_date: baseDate,
+                        current_stock: inventoryData.current_stock,
+                        reserved_stock: inventoryData.reserved_stock,
+                        scheduled_receipts: inventoryData.scheduled_receipts,
+                        available_stock: inventoryData.available_stock,
+                        safety_stock: inventoryData.safety_stock,
+                        calculation_formula: `${inventoryData.current_stock} + ${inventoryData.scheduled_receipts} - ${inventoryData.reserved_stock} = ${inventoryData.available_stock}`
+                    },
+                    status_analysis: {
+                        stock_status: inventoryData.available_stock >= inventoryData.safety_stock ? 'OK' : 'SHORTAGE',
+                        should_order: shouldOrder,
+                        recommended_order_quantity: recommendedOrderQuantity,
+                        estimated_stockout_risk: inventoryData.available_stock < 0 ? 'HIGH' : 
+                                               inventoryData.available_stock < inventoryData.safety_stock ? 'MEDIUM' : 'LOW'
+                    },
+                    scheduled_receipts: receiptsResults,
+                    recent_transactions: transactionResults
+                };
 
-        res.json(responseData);
-
-    } catch (error) {
-        console.error('特定部品在庫詳細取得エラー:', error);
-        res.status(500).json({ 
-            error: 'サーバーエラーが発生しました',
-            details: error.message 
+                res.json(responseData);
+            });
         });
-    } finally {
-        if (connection) {
-            await connection.end();
-        }
-    }
+    });
 });
 
 /**
@@ -347,71 +347,74 @@ router.get('/:part_code', async (req, res) => {
  *   "required_date": "2024-08-15"
  * }
  */
-router.post('/check-sufficiency', async (req, res) => {
-    let connection;
+router.post('/check-sufficiency', (req, res) => {
+    const { required_parts, required_date } = req.body;
     
-    try {
-        const { required_parts, required_date } = req.body;
-        
-        // 入力データの検証
-        if (!required_parts || !Array.isArray(required_parts) || required_parts.length === 0) {
-            return res.status(400).json({ 
-                error: 'required_parts配列が必要です',
-                example: {
-                    required_parts: [
-                        {"part_code": "SUS304-M6-20-HEX", "required_quantity": 100}
-                    ]
-                }
-            });
-        }
+    // 入力データの検証
+    if (!required_parts || !Array.isArray(required_parts) || required_parts.length === 0) {
+        return res.status(400).json({ 
+            error: 'required_parts配列が必要です',
+            example: {
+                required_parts: [
+                    {"part_code": "SUS304-M6-20-HEX", "required_quantity": 100}
+                ]
+            }
+        });
+    }
 
-        // 必要日の設定（省略時は今日）
-        const checkDate = required_date || new Date().toISOString().split('T')[0];
-        
-        connection = await mysql.createConnection(dbConfig);
+    // 必要日の設定（省略時は今日）
+    const checkDate = required_date || new Date().toISOString().split('T')[0];
+    
+    // 部品コードリストの作成
+    const partCodes = required_parts.map(p => p.part_code);
+    const placeholders = partCodes.map(() => '?').join(',');
 
-        // 部品コードリストの作成
-        const partCodes = required_parts.map(p => p.part_code);
-        const placeholders = partCodes.map(() => '?').join(',');
-
-        /**
-         * IN句を使った複数部品の一括取得
-         * パフォーマンスを考慮した設計
-         */
-        const query = `
-            SELECT 
-                i.part_code,
-                p.specification,
-                i.current_stock,
-                i.reserved_stock,
+    /**
+     * IN句を使った複数部品の一括取得
+     * パフォーマンスを考慮した設計
+     */
+    const query = `
+        SELECT 
+            i.part_code,
+            p.specification,
+            i.current_stock,
+            i.reserved_stock,
+            COALESCE(SUM(
+                CASE 
+                    WHEN sr.status = '入荷予定' AND sr.scheduled_date <= ? 
+                    THEN sr.scheduled_quantity 
+                    ELSE 0 
+                END
+            ), 0) AS scheduled_receipts,
+            (
+                i.current_stock + 
                 COALESCE(SUM(
                     CASE 
                         WHEN sr.status = '入荷予定' AND sr.scheduled_date <= ? 
                         THEN sr.scheduled_quantity 
                         ELSE 0 
                     END
-                ), 0) AS scheduled_receipts,
-                (
-                    i.current_stock + 
-                    COALESCE(SUM(
-                        CASE 
-                            WHEN sr.status = '入荷予定' AND sr.scheduled_date <= ? 
-                            THEN sr.scheduled_quantity 
-                            ELSE 0 
-                        END
-                    ), 0) - 
-                    i.reserved_stock
-                ) AS available_stock
-            FROM inventory i
-            LEFT JOIN parts p ON i.part_code = p.part_code
-            LEFT JOIN scheduled_receipts sr ON i.part_code = sr.part_code
-            WHERE i.part_code IN (${placeholders})
-            GROUP BY i.part_code, p.specification, i.current_stock, i.reserved_stock
-        `;
+                ), 0) - 
+                i.reserved_stock
+            ) AS available_stock
+        FROM inventory i
+        LEFT JOIN parts p ON i.part_code = p.part_code
+        LEFT JOIN scheduled_receipts sr ON i.part_code = sr.part_code
+        WHERE i.part_code IN (${placeholders})
+        GROUP BY i.part_code, p.specification, i.current_stock, i.reserved_stock
+    `;
 
-        const [results] = await connection.execute(query, [
-            checkDate, checkDate, ...partCodes
-        ]);
+    const params = [checkDate, checkDate, ...partCodes];
+
+    req.db.query(query, params, (err, results) => {
+        if (err) {
+            console.error('在庫充足性チェックエラー:', err.message);
+            res.status(500).json({ 
+                error: 'サーバーエラーが発生しました',
+                details: err.message 
+            });
+            return;
+        }
 
         // 結果の整理と充足性判定
         const sufficiencyResults = required_parts.map(reqPart => {
@@ -458,18 +461,7 @@ router.post('/check-sufficiency', async (req, res) => {
             summary,
             results: sufficiencyResults
         });
-
-    } catch (error) {
-        console.error('在庫充足性チェックエラー:', error);
-        res.status(500).json({ 
-            error: 'サーバーエラーが発生しました',
-            details: error.message 
-        });
-    } finally {
-        if (connection) {
-            await connection.end();
-        }
-    }
+    });
 });
 
 module.exports = router;

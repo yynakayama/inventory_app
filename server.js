@@ -10,7 +10,6 @@ const scheduled_receiptsRoutes = require('./src/routes/scheduled-receipts');
 const availableInventoryRoutes = require('./src/routes/available-inventory');
 const bommanagementRoutes = require('./src/routes/bom-management');
 
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -49,27 +48,52 @@ app.use((req, res, next) => {
 });
 
 // データベース接続テスト
+let connectionTestRetries = 0;
+const MAX_RETRIES = 5;
+
 const testConnection = () => {
   db.getConnection((err, connection) => {
     if (err) {
-      console.error('データベース接続エラー:', err.message);
-      setTimeout(testConnection, 5000);
+      connectionTestRetries++;
+      console.error(`データベース接続エラー (${connectionTestRetries}/${MAX_RETRIES}):`, err.message);
+      
+      if (connectionTestRetries < MAX_RETRIES) {
+        console.log(`${5}秒後に再試行します...`);
+        setTimeout(testConnection, 5000);
+      } else {
+        console.error('データベース接続の最大リトライ回数に達しました。システムを確認してください。');
+        // 本番環境では process.exit(1) も検討
+      }
       return;
     }
     
-    console.log('MySQLに接続しました (Connection ID:', connection.threadId, ')');
+    console.log('✅ MySQLに接続成功 (Connection ID:', connection.threadId, ')');
+    connectionTestRetries = 0; // リトライカウンターをリセット
     
+    // 基本的なテーブル存在確認
     connection.query('SELECT COUNT(*) as count FROM parts', (err, results) => {
       if (err) {
-        console.error('部品テーブル確認エラー:', err.message);
+        console.error('⚠️  部品テーブル確認エラー:', err.message);
       } else {
-        console.log('部品マスタ件数:', results[0].count);
+        console.log('📦 部品マスタ件数:', results[0].count);
       }
-      connection.release();
+      
+      // 他の重要テーブルも確認
+      connection.query('SELECT COUNT(*) as count FROM inventory', (err, inventoryResults) => {
+        if (err) {
+          console.error('⚠️  在庫テーブル確認エラー:', err.message);
+        } else {
+          console.log('📋 在庫管理件数:', inventoryResults[0].count);
+        }
+        
+        connection.release();
+        console.log('🚀 システム準備完了');
+      });
     });
   });
 };
 
+// 初回接続テスト実行
 testConnection();
 
 // ===========================
@@ -85,7 +109,10 @@ app.get('/', (req, res) => {
     endpoints: {
       health: '/api/health',
       parts: '/api/parts',
-      inventory: '/api/inventory'
+      inventory: '/api/inventory',
+      scheduled_receipts: '/api/scheduled-receipts',
+      available_inventory: '/api/available-inventory',
+      bom: '/api/bom'
     },
     timestamp: new Date().toISOString()
   });
@@ -93,18 +120,22 @@ app.get('/', (req, res) => {
 
 // ヘルスチェックエンドポイント
 app.get('/api/health', (req, res) => {
+  const startTime = Date.now();
+  
   db.getConnection((err, connection) => {
     if (err) {
       console.error('ヘルスチェック - 接続エラー:', err.message);
       res.status(500).json({ 
         status: 'error', 
         message: 'データベース接続エラー',
-        error: err.message
+        error: err.message,
+        timestamp: new Date().toISOString()
       });
       return;
     }
     
-    connection.query('SELECT 1 as test', (err, results) => {
+    connection.query('SELECT 1 as test, NOW() as db_time', (err, results) => {
+      const responseTime = Date.now() - startTime;
       connection.release();
       
       if (err) {
@@ -112,7 +143,9 @@ app.get('/api/health', (req, res) => {
         res.status(500).json({ 
           status: 'error', 
           message: 'データベースクエリエラー',
-          error: err.message 
+          error: err.message,
+          response_time_ms: responseTime,
+          timestamp: new Date().toISOString()
         });
         return;
       }
@@ -120,6 +153,8 @@ app.get('/api/health', (req, res) => {
       res.json({ 
         status: 'ok', 
         database: 'connected',
+        db_time: results[0].db_time,
+        response_time_ms: responseTime,
         timestamp: new Date().toISOString(),
         test_result: results[0].test
       });
@@ -127,25 +162,37 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// 部品関連APIルートを設定
+// APIルートを設定
 app.use('/api/parts', partsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/scheduled-receipts', scheduled_receiptsRoutes);
 app.use('/api/available-inventory', availableInventoryRoutes);
 app.use('/api/bom', bommanagementRoutes);
+
 // サーバー起動
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`サーバーがポート${PORT}で起動しました`);
-  console.log(`アクセスURL: http://localhost:${PORT}`);
+  console.log(`🌐 サーバーがポート${PORT}で起動しました`);
+  console.log(`🔗 アクセスURL: http://localhost:${PORT}`);
+  console.log(`❤️  ヘルスチェック: http://localhost:${PORT}/api/health`);
 });
 
 // エラーハンドリング
 process.on('SIGINT', () => {
-  console.log('\nサーバーを停止します...');
+  console.log('\n🛑 サーバーを停止します...');
   db.end(() => {
-    console.log('データベース接続を閉じました');
+    console.log('💾 データベース接続を閉じました');
     process.exit(0);
   });
+});
+
+// 未処理例外のキャッチ（本番環境用）
+process.on('uncaughtException', (err) => {
+  console.error('未処理例外:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('未処理Rejection:', reason);
 });
 
 module.exports = app;
