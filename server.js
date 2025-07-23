@@ -8,6 +8,7 @@ const partsRoutes = require('./src/routes/parts');
 const inventoryRoutes = require('./src/routes/inventory'); 
 const scheduled_receiptsRoutes = require('./src/routes/scheduled-receipts');
 const availableInventoryRoutes = require('./src/routes/available-inventory');
+const bommanagementRoutes = require('./src/routes/bom-management');
 
 
 const app = express();
@@ -131,7 +132,7 @@ app.use('/api/parts', partsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/scheduled-receipts', scheduled_receiptsRoutes);
 app.use('/api/available-inventory', availableInventoryRoutes);
-
+app.use('/api/bom', bommanagementRoutes);
 // サーバー起動
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`サーバーがポート${PORT}で起動しました`);
