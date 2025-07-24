@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS parts (
     part_code VARCHAR(30) PRIMARY KEY COMMENT '部品コード（例：SUS304-M6-20-HEX）',
     specification VARCHAR(300) NULL COMMENT '規格・仕様（部品の詳細説明）',
     unit VARCHAR(10) DEFAULT '個' COMMENT '単位（個、kg、m等）',
-    lead_time_days INT DEFAULT 7 COMMENT '調達リードタイム（日数）',
+    lead_time_days INT DEFAULT 7 NOT NULL COMMENT '調達リードタイム（日数）',
     safety_stock INT DEFAULT 0 COMMENT '安全在庫数',
     supplier VARCHAR(100) NULL COMMENT '主要仕入先',
     category VARCHAR(50) NULL COMMENT '部品カテゴリ（機械部品、電子部品等）',
