@@ -10,6 +10,7 @@ const scheduled_receiptsRoutes = require('./src/routes/scheduled-receipts');
 const availableInventoryRoutes = require('./src/routes/available-inventory');
 const bommanagementRoutes = require('./src/routes/bom-management');
 const production_plansRoutes = require('./src/routes/production-plans');
+const stocktakingRoutes = require('./src/routes/stocktaking');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -170,6 +171,7 @@ app.use('/api/scheduled-receipts', scheduled_receiptsRoutes);
 app.use('/api/available-inventory', availableInventoryRoutes);
 app.use('/api/bom', bommanagementRoutes);
 app.use('/api/plans', production_plansRoutes);
+app.use('/api/stocktaking', stocktakingRoutes);
 
 // サーバー起動
 app.listen(PORT, '0.0.0.0', () => {
