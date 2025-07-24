@@ -33,7 +33,8 @@ services:
     ports:
       - "8080:80"
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     environment:
       - PMA_HOST=mysql
       - PMA_PORT=3306
@@ -50,7 +51,8 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
     environment:
       - NODE_ENV=development
       - DB_HOST=mysql

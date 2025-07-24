@@ -18,7 +18,6 @@ router.get('/products', (req, res) => {
     const query = `
         SELECT 
             product_code,
-            standard_days,
             remarks,
             created_at,
             updated_at
@@ -51,7 +50,7 @@ router.get('/products', (req, res) => {
  * POST /api/bom/products
  */
 router.post('/products', (req, res) => {
-    const { product_code, standard_days = 0, remarks = null } = req.body;
+    const { product_code, remarks = null } = req.body;
     
     // 入力チェック
     if (!product_code) {
@@ -62,11 +61,11 @@ router.post('/products', (req, res) => {
     }
     
     const query = `
-        INSERT INTO products (product_code, standard_days, remarks)
+        INSERT INTO products (product_code, remarks)
         VALUES (?, ?, ?)
     `;
     
-    req.db.query(query, [product_code, standard_days, remarks], (err, results) => {
+    req.db.query(query, [product_code, remarks], (err, results) => {
         if (err) {
             console.error('製品作成エラー:', err.message);
             if (err.code === 'ER_DUP_ENTRY') {
@@ -88,7 +87,6 @@ router.post('/products', (req, res) => {
             success: true,
             data: {
                 product_code,
-                standard_days,
                 remarks
             },
             message: '製品を作成しました'

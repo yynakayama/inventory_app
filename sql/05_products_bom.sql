@@ -5,7 +5,6 @@
 -- 1. 製品マスタテーブル作成
 CREATE TABLE IF NOT EXISTS products (
     product_code VARCHAR(20) PRIMARY KEY COMMENT '製品コード（例：V5000, D2000）',
-    standard_days INT DEFAULT 0 COMMENT '標準製造期間（日数）',
     remarks TEXT NULL COMMENT '備考',
     is_active BOOLEAN DEFAULT TRUE COMMENT 'アクティブフラグ',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
@@ -59,12 +58,11 @@ CREATE TABLE IF NOT EXISTS bom_items (
 ) COMMENT='工程ベースBOMテーブル（製品×工程×部品の関係管理）';
 
 -- 4. 初期データ投入 - 製品マスタ
-INSERT INTO products (product_code, standard_days, remarks) VALUES
-('V5000', 5, '主力製品・汎用型'),
-('D2000', 7, '高機能・産業用'),
-('T1000', 3, '検査・測定用')
+INSERT INTO products (product_code, remarks) VALUES
+('V5000', '主力製品・汎用型'),
+('D2000', '高機能・産業用'),
+('T1000', '検査・測定用')
 ON DUPLICATE KEY UPDATE
-    standard_days = VALUES(standard_days),
     remarks = VALUES(remarks),
     updated_at = CURRENT_TIMESTAMP;
 
