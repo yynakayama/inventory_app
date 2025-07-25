@@ -21,10 +21,10 @@ services:
       --skip-character-set-client-handshake
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppassword"]
-      interval: 30s
+      interval: 10s
       timeout: 10s
-      retries: 3
-      start_period: 90s
+      retries: 10
+      start_period: 120s
 
   # phpMyAdmin (開発時のDB管理画面)
   phpmyadmin:

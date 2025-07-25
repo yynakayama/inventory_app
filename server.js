@@ -1,9 +1,11 @@
 const express = require('express');
 const mysql = require('mysql2');
 const cors = require('cors');
+const helmet = require('helmet');
 require('dotenv').config();
 
 // ルーターのインポート
+const authRoutes = require('./src/routes/auth'); // 🆕 認証ルート追加
 const partsRoutes = require('./src/routes/parts');
 const inventoryRoutes = require('./src/routes/inventory'); 
 const scheduled_receiptsRoutes = require('./src/routes/scheduled-receipts');
@@ -14,13 +16,18 @@ const stocktakingRoutes = require('./src/routes/stocktaking');
 const procurementAlertsRoutes = require('./src/routes/procurement-alerts');
 const reportsRoutes = require('./src/routes/reports');
 
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ミドルウェア設定
-app.use(cors());
-app.use(express.json());
+// ===========================
+// セキュリティミドルウェア設定
+// ===========================
+app.use(helmet()); // 🆕 セキュリティヘッダー追加
+app.use(cors({
+  origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : ['http://localhost:3000', 'http://localhost:3001'],
+  credentials: true
+})); // CORS設定強化
+app.use(express.json({ limit: '10mb' })); // JSONペイロード制限
 
 // MySQL接続設定（プール使用）
 const dbConfig = {
@@ -83,16 +90,26 @@ const testConnection = () => {
         console.log('📦 部品マスタ件数:', results[0].count);
       }
       
-      // 他の重要テーブルも確認
-      connection.query('SELECT COUNT(*) as count FROM inventory', (err, inventoryResults) => {
+      // 認証テーブル確認も追加
+      connection.query('SELECT COUNT(*) as count FROM users', (err, userResults) => {
         if (err) {
-          console.error('⚠️  在庫テーブル確認エラー:', err.message);
+          console.error('⚠️  ユーザーテーブル確認エラー:', err.message);
         } else {
-          console.log('📋 在庫管理件数:', inventoryResults[0].count);
+          console.log('👥 ユーザー件数:', userResults[0].count);
         }
         
-        connection.release();
-        console.log('🚀 システム準備完了');
+        // 他の重要テーブルも確認
+        connection.query('SELECT COUNT(*) as count FROM inventory', (err, inventoryResults) => {
+          if (err) {
+            console.error('⚠️  在庫テーブル確認エラー:', err.message);
+          } else {
+            console.log('📋 在庫管理件数:', inventoryResults[0].count);
+          }
+          
+          connection.release();
+          console.log('🚀 システム準備完了');
+          console.log('🔐 認証機能が有効になりました');
+        });
       });
     });
   });
@@ -105,25 +122,44 @@ testConnection();
 // ルーターの設定
 // ===========================
 
-// 基本ルート
+// 基本ルート（認証不要）
 app.get('/', (req, res) => {
   res.json({ 
     message: '在庫管理システムAPI',
     status: 'running',
     version: '1.0.0',
+    authentication: 'enabled', // 🆕 認証機能有効化表示
     endpoints: {
       health: '/api/health',
-      parts: '/api/parts',
-      inventory: '/api/inventory',
-      scheduled_receipts: '/api/scheduled-receipts',
-      available_inventory: '/api/available-inventory',
-      bom: '/api/bom'
+      auth: {
+        login: 'POST /api/auth/login',
+        logout: 'POST /api/auth/logout',
+        me: 'GET /api/auth/me',
+        changePassword: 'PUT /api/auth/change-password'
+      },
+      api: {
+        parts: '/api/parts',
+        inventory: '/api/inventory',
+        scheduled_receipts: '/api/scheduled-receipts',
+        available_inventory: '/api/available-inventory',
+        bom: '/api/bom',
+        plans: '/api/plans',
+        stocktaking: '/api/stocktaking',
+        alerts: '/api/alerts',
+        reports: '/api/reports'
+      }
+    },
+    defaultCredentials: { // 🆕 開発用認証情報表示
+      admin: { username: 'admin', password: 'admin123' },
+      production: { username: 'production_mgr', password: 'prod123' },
+      material: { username: 'material_staff', password: 'material123' },
+      viewer: { username: 'viewer_user', password: 'viewer123' }
     },
     timestamp: new Date().toISOString()
   });
 });
 
-// ヘルスチェックエンドポイント
+// ヘルスチェックエンドポイント（認証不要）
 app.get('/api/health', (req, res) => {
   const startTime = Date.now();
   
@@ -158,6 +194,7 @@ app.get('/api/health', (req, res) => {
       res.json({ 
         status: 'ok', 
         database: 'connected',
+        authentication: 'enabled', // 🆕 認証状態表示
         db_time: results[0].db_time,
         response_time_ms: responseTime,
         timestamp: new Date().toISOString(),
@@ -167,7 +204,14 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// ===========================
 // APIルートを設定
+// ===========================
+
+// 🆕 認証関連ルート（認証不要 - ログイン自体は認証前なので）
+app.use('/api/auth', authRoutes);
+
+// 既存APIルート（この後の段階で認証を追加予定）
 app.use('/api/parts', partsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/scheduled-receipts', scheduled_receiptsRoutes);
@@ -178,10 +222,33 @@ app.use('/api/stocktaking', stocktakingRoutes);
 app.use('/api/alerts', procurementAlertsRoutes);
 app.use('/api/reports', reportsRoutes);
 
+// 404エラーハンドリング
+app.use('*', (req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'エンドポイントが見つかりません',
+    path: req.originalUrl,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// グローバルエラーハンドリング
+app.use((error, req, res, next) => {
+  console.error('グローバルエラー:', error);
+  res.status(500).json({
+    success: false,
+    message: 'サーバー内部エラーが発生しました',
+    error: process.env.NODE_ENV === 'development' ? error.message : 'Internal Server Error',
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 サーバーがポート${PORT}で起動しました`);
   console.log(`🔗 アクセスURL: http://localhost:${PORT}`);
   console.log(`❤️  ヘルスチェック: http://localhost:${PORT}/api/health`);
+  console.log(`🔐 ログインAPI: http://localhost:${PORT}/api/auth/login`);
+  console.log(`📋 利用可能なAPIエンドポイント一覧: http://localhost:${PORT}/`);
 });
 
 // エラーハンドリング
