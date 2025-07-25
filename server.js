@@ -12,6 +12,7 @@ const bommanagementRoutes = require('./src/routes/bom-management');
 const production_plansRoutes = require('./src/routes/production-plans');
 const stocktakingRoutes = require('./src/routes/stocktaking');
 const procurementAlertsRoutes = require('./src/routes/procurement-alerts');
+const reportsRoutes = require('./src/routes/reports');
 
 
 const app = express();
@@ -175,8 +176,8 @@ app.use('/api/bom', bommanagementRoutes);
 app.use('/api/plans', production_plansRoutes);
 app.use('/api/stocktaking', stocktakingRoutes);
 app.use('/api/alerts', procurementAlertsRoutes);
+app.use('/api/reports', reportsRoutes);
 
-// サーバー起動
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 サーバーがポート${PORT}で起動しました`);
   console.log(`🔗 アクセスURL: http://localhost:${PORT}`);
