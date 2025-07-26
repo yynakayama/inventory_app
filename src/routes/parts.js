@@ -1,12 +1,23 @@
 // ==========================================
-// 部品マスタ関連APIルート（部品コードのみ設計版）
+// 部品マスタ関連APIルート
 // 部品コードのみ必須、仕様は任意
 // ==========================================
 
 const express = require('express');
+const { 
+  authenticateToken, 
+  requireAdmin, 
+  requireReadAccess 
+} = require('../middleware/auth');
+
 const router = express.Router();
 
+// ==========================================
+// 認証不要エンドポイント（参照系の一部）
+// ==========================================
+
 // 1. 部品カテゴリ一覧取得 GET /api/parts/categories
+// 認証不要 - システム設定情報のため
 router.get('/categories', (req, res) => {
   const query = `
     SELECT 
@@ -22,6 +33,7 @@ router.get('/categories', (req, res) => {
     if (err) {
       console.error('カテゴリ一覧取得エラー:', err.message);
       res.status(500).json({ 
+        success: false,
         error: 'データベースエラー',
         message: 'カテゴリ一覧の取得に失敗しました',
         details: err.message
@@ -38,6 +50,7 @@ router.get('/categories', (req, res) => {
 });
 
 // 2. 部品コード体系チェック GET /api/parts/code-patterns
+// 認証不要 - コード命名規則の参照のため
 router.get('/code-patterns', (req, res) => {
   const query = `
     SELECT 
@@ -54,6 +67,7 @@ router.get('/code-patterns', (req, res) => {
     if (err) {
       console.error('部品コード体系取得エラー:', err.message);
       res.status(500).json({ 
+        success: false,
         error: 'データベースエラー',
         message: '部品コード体系の取得に失敗しました',
         details: err.message
@@ -69,8 +83,13 @@ router.get('/code-patterns', (req, res) => {
   });
 });
 
-// 2. 部品一覧取得 GET /api/parts
-router.get('/', (req, res) => {
+// ==========================================
+// 認証必要エンドポイント（要ログイン）
+// ==========================================
+
+// 3. 部品一覧取得 GET /api/parts
+// 🔐 認証必須 - 全ロール参照可能
+router.get('/', authenticateToken, requireReadAccess, (req, res) => {
   const { search, category, limit = 100 } = req.query;
   
   let query = `
@@ -110,6 +129,7 @@ router.get('/', (req, res) => {
     if (err) {
       console.error('部品一覧取得エラー:', err.message);
       res.status(500).json({ 
+        success: false,
         error: 'データベースエラー',
         message: '部品一覧の取得に失敗しました',
         details: err.message
@@ -122,13 +142,15 @@ router.get('/', (req, res) => {
       data: results,
       count: results.length,
       search_params: { search, category, limit },
+      requested_by: req.user.username, // 🆕 リクエスト者情報追加
       timestamp: new Date().toISOString()
     });
   });
 });
 
-// 3. 特定部品取得 GET /api/parts/:code
-router.get('/:code', (req, res) => {
+// 4. 特定部品取得 GET /api/parts/:code
+// 🔐 認証必須 - 全ロール参照可能
+router.get('/:code', authenticateToken, requireReadAccess, (req, res) => {
   const partCode = req.params.code;
   
   const query = `
@@ -151,6 +173,7 @@ router.get('/:code', (req, res) => {
     if (err) {
       console.error('部品取得エラー:', err.message);
       res.status(500).json({ 
+        success: false,
         error: 'データベースエラー',
         message: '部品の取得に失敗しました',
         details: err.message
@@ -160,6 +183,7 @@ router.get('/:code', (req, res) => {
     
     if (results.length === 0) {
       res.status(404).json({
+        success: false,
         error: '部品が見つかりません',
         message: `部品コード「${partCode}」は存在しません`
       });
@@ -168,13 +192,19 @@ router.get('/:code', (req, res) => {
     
     res.json({
       success: true,
-      data: results[0]
+      data: results[0],
+      requested_by: req.user.username // 🆕 リクエスト者情報追加
     });
   });
 });
 
-// 4. 新規部品登録 POST /api/parts
-router.post('/', (req, res) => {
+// ==========================================
+// 管理者専用エンドポイント（admin のみ）
+// ==========================================
+
+// 5. 新規部品登録 POST /api/parts
+// 🔐 管理者のみ - 部品マスタの追加権限
+router.post('/', authenticateToken, requireAdmin, (req, res) => {
   const {
     part_code,
     specification,
@@ -190,6 +220,7 @@ router.post('/', (req, res) => {
   // 必須項目チェック（部品コードのみ）
   if (!part_code) {
     res.status(400).json({
+      success: false,
       error: '入力エラー',
       message: '部品コードは必須です'
     });
@@ -226,6 +257,7 @@ router.post('/', (req, res) => {
     if (err) {
       if (err.code === 'ER_DUP_ENTRY') {
         res.status(409).json({
+          success: false,
           error: '重複エラー',
           message: `部品コード「${part_code}」は既に存在します`
         });
@@ -234,6 +266,7 @@ router.post('/', (req, res) => {
       
       console.error('部品登録エラー:', err.message);
       res.status(500).json({
+        success: false,
         error: 'データベースエラー',
         message: '部品の登録に失敗しました',
         details: err.message
@@ -241,16 +274,23 @@ router.post('/', (req, res) => {
       return;
     }
     
+    // 🆕 操作ログ出力
+    console.log(`[PARTS] 新規登録: ${part_code} by ${req.user.username} (${req.user.role})`);
+    
     res.status(201).json({
       success: true,
       message: '部品を登録しました',
-      data: { part_code }
+      data: { 
+        part_code,
+        created_by: req.user.username // 🆕 作成者情報追加
+      }
     });
   });
 });
 
-// 5. 部品更新 PUT /api/parts/:code
-router.put('/:code', (req, res) => {
+// 6. 部品更新 PUT /api/parts/:code
+// 🔐 管理者のみ - 部品マスタの編集権限
+router.put('/:code', authenticateToken, requireAdmin, (req, res) => {
   const partCode = req.params.code;
   const {
     specification,
@@ -296,6 +336,7 @@ router.put('/:code', (req, res) => {
     if (err) {
       console.error('部品更新エラー:', err.message);
       res.status(500).json({
+        success: false,
         error: 'データベースエラー',
         message: '部品の更新に失敗しました',
         details: err.message
@@ -305,22 +346,30 @@ router.put('/:code', (req, res) => {
     
     if (results.affectedRows === 0) {
       res.status(404).json({
+        success: false,
         error: '部品が見つかりません',
         message: `部品コード「${partCode}」は存在しません`
       });
       return;
     }
     
+    // 🆕 操作ログ出力
+    console.log(`[PARTS] 更新: ${partCode} by ${req.user.username} (${req.user.role})`);
+    
     res.json({
       success: true,
       message: '部品を更新しました',
-      data: { part_code: partCode }
+      data: { 
+        part_code: partCode,
+        updated_by: req.user.username // 🆕 更新者情報追加
+      }
     });
   });
 });
 
-// 6. 部品削除 DELETE /api/parts/:code（論理削除）
-router.delete('/:code', (req, res) => {
+// 7. 部品削除 DELETE /api/parts/:code（論理削除）
+// 🔐 管理者のみ - 部品マスタの削除権限
+router.delete('/:code', authenticateToken, requireAdmin, (req, res) => {
   const partCode = req.params.code;
   
   const query = `
@@ -334,6 +383,7 @@ router.delete('/:code', (req, res) => {
     if (err) {
       console.error('部品削除エラー:', err.message);
       res.status(500).json({
+        success: false,
         error: 'データベースエラー',
         message: '部品の削除に失敗しました',
         details: err.message
@@ -343,16 +393,23 @@ router.delete('/:code', (req, res) => {
     
     if (results.affectedRows === 0) {
       res.status(404).json({
+        success: false,
         error: '部品が見つかりません',
         message: `部品コード「${partCode}」は存在しません`
       });
       return;
     }
     
+    // 🆕 操作ログ出力（重要な操作なので必ずログ）
+    console.log(`[PARTS] 削除: ${partCode} by ${req.user.username} (${req.user.role})`);
+    
     res.json({
       success: true,
       message: '部品を削除しました',
-      data: { part_code: partCode }
+      data: { 
+        part_code: partCode,
+        deleted_by: req.user.username // 🆕 削除者情報追加
+      }
     });
   });
 });

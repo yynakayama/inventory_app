@@ -1,15 +1,17 @@
 const express = require('express');
 const router = express.Router();
+const { authenticateToken, requireMaterialAccess, requireReadAccess } = require('../middleware/auth');
 
 /**
  * 在庫一覧取得API
  * GET /api/inventory
+ * 権限: 全認証ユーザー（参照権限）
  * クエリパラメータ:
  * - search: 部品コード・仕様での検索
  * - category: カテゴリでのフィルタ
  * - low_stock: 安全在庫を下回る部品のみ表示
  */
-router.get('/', (req, res) => {
+router.get('/', authenticateToken, requireReadAccess, (req, res) => {
   const { search, category, low_stock } = req.query;
   
   let sql = `
@@ -69,7 +71,12 @@ router.get('/', (req, res) => {
     res.json({
       success: true,
       data: results,
-      total: results.length
+      total: results.length,
+      // 認証ユーザー情報を追加（デバッグ用）
+      user_info: {
+        user_id: req.user.user_id,
+        role: req.user.role
+      }
     });
   });
 });
@@ -77,8 +84,9 @@ router.get('/', (req, res) => {
 /**
  * 特定部品の在庫詳細取得API
  * GET /api/inventory/:part_code
+ * 権限: 全認証ユーザー（参照権限）
  */
-router.get('/:part_code', (req, res) => {
+router.get('/:part_code', authenticateToken, requireReadAccess, (req, res) => {
   const { part_code } = req.params;
   
   const sql = `
@@ -131,9 +139,10 @@ router.get('/:part_code', (req, res) => {
 /**
  * 在庫数量更新API（手動調整）
  * PUT /api/inventory/:part_code
+ * 権限: admin + material_staff（資材管理権限）
  * Body: { current_stock: number, reason?: string }
  */
-router.put('/:part_code', (req, res) => {
+router.put('/:part_code', authenticateToken, requireMaterialAccess, (req, res) => {
   const { part_code } = req.params;
   const { current_stock, reason = '手動調整' } = req.body;
   
@@ -191,15 +200,17 @@ router.put('/:part_code', (req, res) => {
         return;
       }
       
-      // 在庫履歴を記録
+      // 在庫履歴を記録（認証ユーザー情報を記録）
       const stockDifference = current_stock - oldStock;
       const historyQuery = `
         INSERT INTO inventory_transactions 
-        (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date) 
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
+        (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date, created_by) 
+        VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
       `;
       
-      req.db.query(historyQuery, [part_code, '手動調整', stockDifference, oldStock, current_stock, reason], (err, historyResult) => {
+      const historyRemarks = `${reason} (実行者: ${req.user.username})`;
+      
+      req.db.query(historyQuery, [part_code, '手動調整', stockDifference, oldStock, current_stock, historyRemarks, req.user.user_id], (err, historyResult) => {
         if (err) {
           console.error('履歴記録エラー:', err.message);
           // 履歴記録エラーは警告のみ、レスポンスは正常とする
@@ -213,7 +224,8 @@ router.put('/:part_code', (req, res) => {
             part_code,
             old_stock: oldStock,
             new_stock: current_stock,
-            difference: stockDifference
+            difference: stockDifference,
+            updated_by: req.user.username
           }
         });
       });
@@ -224,9 +236,10 @@ router.put('/:part_code', (req, res) => {
 /**
  * 入荷処理API
  * POST /api/inventory/:part_code/receipt
+ * 権限: admin + material_staff（資材管理権限）
  * Body: { quantity: number, supplier?: string, remarks?: string }
  */
-router.post('/:part_code/receipt', (req, res) => {
+router.post('/:part_code/receipt', authenticateToken, requireMaterialAccess, (req, res) => {
   const { part_code } = req.params;
   const { quantity, supplier = '', remarks = '' } = req.body;
   
@@ -304,6 +317,7 @@ router.post('/:part_code/receipt', (req, res) => {
 
 /**
  * 入荷処理の実行部分（内部関数）
+ * 認証ユーザー情報を履歴に記録
  */
 function processReceipt(part_code, quantity, currentStock, supplier, remarks, req, res) {
   const newStock = currentStock + quantity;
@@ -322,16 +336,16 @@ function processReceipt(part_code, quantity, currentStock, supplier, remarks, re
       return;
     }
     
-    // 在庫トランザクション履歴を記録
+    // 在庫トランザクション履歴を記録（認証ユーザー情報を含む）
     const historyQuery = `
       INSERT INTO inventory_transactions 
-      (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date) 
-      VALUES (?, ?, ?, ?, ?, ?, NOW())
+      (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date, created_by) 
+      VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
     `;
     
-    const historyRemarks = `入荷処理: ${remarks}${supplier ? ` (仕入先: ${supplier})` : ''}`;
+    const historyRemarks = `入荷処理: ${remarks}${supplier ? ` (仕入先: ${supplier})` : ''} (実行者: ${req.user.username})`;
     
-    req.db.query(historyQuery, [part_code, '入荷', quantity, currentStock, newStock, historyRemarks], (err, historyResult) => {
+    req.db.query(historyQuery, [part_code, '入荷', quantity, currentStock, newStock, historyRemarks, req.user.user_id], (err, historyResult) => {
       if (err) {
         console.error('履歴記録エラー:', err.message);
         // 履歴記録エラーは警告のみ
@@ -346,7 +360,8 @@ function processReceipt(part_code, quantity, currentStock, supplier, remarks, re
           receipt_quantity: quantity,
           old_stock: currentStock,
           new_stock: newStock,
-          supplier
+          supplier,
+          processed_by: req.user.username
         }
       });
     });
@@ -356,9 +371,10 @@ function processReceipt(part_code, quantity, currentStock, supplier, remarks, re
 /**
  * 出庫処理API
  * POST /api/inventory/:part_code/issue
+ * 権限: admin + material_staff（資材管理権限）
  * Body: { quantity: number, purpose?: string, remarks?: string }
  */
-router.post('/:part_code/issue', (req, res) => {
+router.post('/:part_code/issue', authenticateToken, requireMaterialAccess, (req, res) => {
   const { part_code } = req.params;
   const { quantity, purpose = '生産投入', remarks = '' } = req.body;
   
@@ -419,14 +435,16 @@ router.post('/:part_code/issue', (req, res) => {
         return;
       }
       
-      // 在庫トランザクション履歴を記録
+      // 在庫トランザクション履歴を記録（認証ユーザー情報を含む）
       const historyQuery = `
         INSERT INTO inventory_transactions 
-        (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date) 
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
+        (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date, created_by) 
+        VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
       `;
       
-      req.db.query(historyQuery, [part_code, '出庫', -quantity, currentStock, newStock, `${purpose}: ${remarks}`], (err, historyResult) => {
+      const historyRemarks = `${purpose}: ${remarks} (実行者: ${req.user.username})`;
+      
+      req.db.query(historyQuery, [part_code, '出庫', -quantity, currentStock, newStock, historyRemarks, req.user.user_id], (err, historyResult) => {
         if (err) {
           console.error('履歴記録エラー:', err.message);
           // 履歴記録エラーは警告のみ
@@ -442,7 +460,8 @@ router.post('/:part_code/issue', (req, res) => {
             old_stock: currentStock,
             new_stock: newStock,
             available_stock: availableStock - quantity,
-            purpose
+            purpose,
+            processed_by: req.user.username
           }
         });
       });
@@ -453,8 +472,9 @@ router.post('/:part_code/issue', (req, res) => {
 /**
  * 在庫履歴取得API
  * GET /api/inventory/:part_code/history
+ * 権限: 全認証ユーザー（参照権限）
  */
-router.get('/:part_code/history', (req, res) => {
+router.get('/:part_code/history', authenticateToken, requireReadAccess, (req, res) => {
   const { part_code } = req.params;
   const { limit = 50 } = req.query;
   
