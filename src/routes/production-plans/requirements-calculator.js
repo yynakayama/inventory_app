@@ -6,17 +6,24 @@
 const express = require('express');
 const router = express.Router();
 
+// 認証ミドルウェアをインポート
+const { requireReadAccess } = require('../../middleware/auth');
+
 /**
  * 所要量計算の専門処理を担当するモジュール
  * 生産計画から必要部品とその数量を算出し、在庫充足性をチェック
+ * 
+ * 【権限設計】
+ * - 所要量計算は参照系機能のため、全認証ユーザーがアクセス可能
  */
 
 // ==========================================
-// 所要量計算機能
+// 所要量計算機能（全認証ユーザー可）
 // POST /api/plans/:id/requirements
 // ==========================================
-router.post('/:id/requirements', (req, res) => {
+router.post('/:id/requirements', requireReadAccess, (req, res) => {
     const planId = parseInt(req.params.id);
+    console.log(`📊 所要量計算開始: 計画ID=${planId}, ユーザー=${req.user.username} (${req.user.role})`);
 
     if (isNaN(planId)) {
         return res.status(400).json({
@@ -24,8 +31,6 @@ router.post('/:id/requirements', (req, res) => {
             message: '無効な生産計画IDです'
         });
     }
-
-    console.log(`📊 所要量計算開始: 計画ID=${planId}`);
 
     // 1. 生産計画の存在チェック
     const planCheckQuery = `
@@ -75,17 +80,26 @@ router.post('/:id/requirements', (req, res) => {
                 });
             }
 
+            // 実行ユーザー情報を追加
+            calculationResult.data.calculated_by = {
+                username: req.user.username,
+                role: req.user.role,
+                calculation_time: new Date().toISOString()
+            };
+
+            console.log(`✅ 所要量計算完了: ユーザー=${req.user.username}`);
             res.json(calculationResult);
         });
     });
 });
+
 
 // ==========================================
 // 所要量計算の主処理
 // ==========================================
 
 /**
- * 所要量計算とそ在庫充足性チェックを実行
+ * 所要量計算と在庫充足性チェックを実行
  * @param {Object} db - データベース接続
  * @param {number} planId - 生産計画ID
  * @param {Object} planInfo - 生産計画情報
@@ -315,5 +329,6 @@ function buildShortageDetails(shortageRparts, stationMap) {
         lead_time_days: req.lead_time_days
     }));
 }
+
 
 module.exports = router;

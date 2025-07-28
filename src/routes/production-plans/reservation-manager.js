@@ -6,6 +6,10 @@
 /**
  * 在庫予約の作成・更新・削除を専門に扱うモジュール
  * 生産計画とBOMを連携させて、必要部品の在庫予約を自動化
+ * 
+ * 【修正内容】
+ * - データベース接続をconnectionオブジェクトとして受け取る
+ * - プールオブジェクト（req.db）からconnectionオブジェクトに変更
  */
 
 // ==========================================
@@ -15,14 +19,14 @@
 
 /**
  * 生産計画に基づいて在庫予約を作成
- * @param {Object} db - データベース接続
+ * @param {Object} connection - データベース接続（単一接続）
  * @param {number} planId - 生産計画ID
  * @param {string} productCode - 製品コード
  * @param {number} plannedQuantity - 生産数量
  * @param {string} createdBy - 作成者
  * @param {Function} callback - コールバック関数 (err, reservations)
  */
-function createReservations(db, planId, productCode, plannedQuantity, createdBy, callback) {
+function createReservations(connection, planId, productCode, plannedQuantity, createdBy, callback) {
     console.log(`🔄 在庫予約作成開始: 計画ID=${planId}, 製品=${productCode}, 数量=${plannedQuantity}`);
     
     // BOM展開で必要部品と数量を取得
@@ -40,7 +44,7 @@ function createReservations(db, planId, productCode, plannedQuantity, createdBy,
         ORDER BY b.part_code
     `;
     
-    db.query(bomQuery, [plannedQuantity, productCode], (err, bomResults) => {
+    connection.query(bomQuery, [plannedQuantity, productCode], (err, bomResults) => {
         if (err) {
             console.error('❌ BOM展開エラー:', err);
             return callback(err);
@@ -75,7 +79,7 @@ function createReservations(db, planId, productCode, plannedQuantity, createdBy,
             
             const remarks = `生産計画ID:${planId} 製品:${productCode} での自動予約`;
             
-            db.query(reservationQuery, [
+            connection.query(reservationQuery, [
                 planId,
                 bomItem.part_code,
                 bomItem.required_quantity,
@@ -118,11 +122,11 @@ function createReservations(db, planId, productCode, plannedQuantity, createdBy,
 
 /**
  * 指定された生産計画の全在庫予約を削除
- * @param {Object} db - データベース接続
+ * @param {Object} connection - データベース接続（単一接続）
  * @param {number} planId - 生産計画ID
  * @param {Function} callback - コールバック関数 (err, deleteInfo)
  */
-function deleteReservations(db, planId, callback) {
+function deleteReservations(connection, planId, callback) {
     console.log(`🗑️ 在庫予約削除開始: 計画ID=${planId}`);
     
     // 削除前に予約詳細を取得（ログ用）
@@ -138,7 +142,7 @@ function deleteReservations(db, planId, callback) {
         ORDER BY ir.part_code
     `;
     
-    db.query(selectQuery, [planId], (err, reservations) => {
+    connection.query(selectQuery, [planId], (err, reservations) => {
         if (err) {
             console.error('❌ 削除対象予約取得エラー:', err);
             return callback(err);
@@ -158,7 +162,7 @@ function deleteReservations(db, planId, callback) {
         // 予約削除実行
         const deleteQuery = 'DELETE FROM inventory_reservations WHERE production_plan_id = ?';
         
-        db.query(deleteQuery, [planId], (err, result) => {
+        connection.query(deleteQuery, [planId], (err, result) => {
             if (err) {
                 console.error('❌ 予約削除エラー:', err);
                 return callback(err);
@@ -182,7 +186,7 @@ function deleteReservations(db, planId, callback) {
 
 /**
  * 在庫予約を更新（既存予約削除 → 新しい予約作成）
- * @param {Object} db - データベース接続
+ * @param {Object} connection - データベース接続（単一接続）
  * @param {number} planId - 生産計画ID
  * @param {string} productCode - 製品コード
  * @param {number} plannedQuantity - 新しい生産数量
@@ -190,11 +194,11 @@ function deleteReservations(db, planId, callback) {
  * @param {string} updatedBy - 更新者
  * @param {Function} callback - コールバック関数 (err, updateInfo)
  */
-function updateReservations(db, planId, productCode, plannedQuantity, status, updatedBy, callback) {
+function updateReservations(connection, planId, productCode, plannedQuantity, status, updatedBy, callback) {
     console.log(`🔄 在庫予約更新開始: 計画ID=${planId}, 製品=${productCode}, 数量=${plannedQuantity}, ステータス=${status}`);
     
     // 1. 既存予約を削除
-    deleteReservations(db, planId, (err, deleteResult) => {
+    deleteReservations(connection, planId, (err, deleteResult) => {
         if (err) {
             console.error('❌ 既存予約削除エラー:', err);
             return callback(err);
@@ -204,7 +208,7 @@ function updateReservations(db, planId, productCode, plannedQuantity, status, up
         if (status === '計画' || status === '生産中') {
             console.log(`📝 新しい予約作成: ステータス「${status}」のため予約を作成します`);
             
-            createReservations(db, planId, productCode, plannedQuantity, updatedBy, (err, createResult) => {
+            createReservations(connection, planId, productCode, plannedQuantity, updatedBy, (err, createResult) => {
                 if (err) {
                     console.error('❌ 新規予約作成エラー:', err);
                     return callback(err);
@@ -240,11 +244,11 @@ function updateReservations(db, planId, productCode, plannedQuantity, status, up
 
 /**
  * 指定された生産計画の在庫予約状況を取得
- * @param {Object} db - データベース接続
+ * @param {Object} connection - データベース接続（単一接続またはプール）
  * @param {number} planId - 生産計画ID
  * @param {Function} callback - コールバック関数 (err, reservationStatus)
  */
-function getReservationStatus(db, planId, callback) {
+function getReservationStatus(connection, planId, callback) {
     const query = `
         SELECT 
             ir.id,
@@ -263,7 +267,7 @@ function getReservationStatus(db, planId, callback) {
         ORDER BY ir.part_code
     `;
     
-    db.query(query, [planId], (err, results) => {
+    connection.query(query, [planId], (err, results) => {
         if (err) {
             console.error('❌ 予約状況取得エラー:', err);
             return callback(err);

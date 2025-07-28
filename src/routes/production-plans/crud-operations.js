@@ -7,11 +7,19 @@ const express = require('express');
 const router = express.Router();
 const reservationManager = require('./reservation-manager');
 
+// 認証ミドルウェアをインポート
+const { 
+    requireReadAccess, 
+    requireProductionAccess 
+} = require('../../middleware/auth');
+
 // ==========================================
-// 1. 生産計画一覧取得
+// 1. 生産計画一覧取得（全認証ユーザー可）
 // GET /api/plans
 // ==========================================
-router.get('/', (req, res) => {
+router.get('/', requireReadAccess, (req, res) => {
+    console.log(`📋 生産計画一覧取得: ユーザー=${req.user.username} (${req.user.role})`);
+    
     const query = `
         SELECT 
             pp.id,
@@ -49,6 +57,7 @@ router.get('/', (req, res) => {
             updated_at: plan.updated_at ? plan.updated_at.toISOString() : null
         }));
 
+        console.log(`✅ 一覧取得成功: ${formattedResults.length}件`);
         res.json({
             success: true,
             data: formattedResults,
@@ -58,11 +67,12 @@ router.get('/', (req, res) => {
 });
 
 // ==========================================
-// 2. 生産計画詳細取得
+// 2. 生産計画詳細取得（全認証ユーザー可）
 // GET /api/plans/:id
 // ==========================================
-router.get('/:id', (req, res) => {
+router.get('/:id', requireReadAccess, (req, res) => {
     const planId = parseInt(req.params.id);
+    console.log(`📋 生産計画詳細取得: ID=${planId}, ユーザー=${req.user.username} (${req.user.role})`);
 
     if (isNaN(planId)) {
         return res.status(400).json({
@@ -100,6 +110,7 @@ router.get('/:id', (req, res) => {
         }
 
         if (results.length === 0) {
+            console.log(`❌ 計画未発見: ID=${planId}`);
             return res.status(404).json({
                 success: false,
                 message: '指定された生産計画が見つかりません'
@@ -114,6 +125,7 @@ router.get('/:id', (req, res) => {
             updated_at: plan.updated_at ? plan.updated_at.toISOString() : null
         };
 
+        console.log(`✅ 詳細取得成功: ${plan.product_code}`);
         res.json({
             success: true,
             data: formattedPlan
@@ -122,10 +134,12 @@ router.get('/:id', (req, res) => {
 });
 
 // ==========================================
-// 3. 生産計画登録（自動予約機能付き）
+// 3. 生産計画登録（生産管理権限必要）
 // POST /api/plans
 // ==========================================
-router.post('/', (req, res) => {
+router.post('/', requireProductionAccess, (req, res) => {
+    console.log(`📝 生産計画登録: ユーザー=${req.user.username} (${req.user.role})`);
+    
     const {
         building_no,
         product_code,
@@ -133,8 +147,10 @@ router.post('/', (req, res) => {
         start_date,
         status = '計画',
         remarks,
-        created_by = 'system'
+        created_by = req.user.username
     } = req.body;
+
+    console.log(`📝 登録内容: 製品=${product_code}, 数量=${planned_quantity}, 開始日=${start_date}`);
 
     // 入力値バリデーション
     const validationError = validatePlanData({
@@ -145,6 +161,7 @@ router.post('/', (req, res) => {
     });
 
     if (validationError) {
+        console.log(`❌ バリデーションエラー: ${validationError}`);
         return res.status(400).json({
             success: false,
             message: validationError
@@ -165,16 +182,17 @@ router.post('/', (req, res) => {
         }
 
         if (productResults.length === 0) {
+            console.log(`❌ 製品未発見: ${product_code}`);
             return res.status(400).json({
                 success: false,
                 message: '指定された製品コードが見つかりません'
             });
         }
 
-        // トランザクション開始
-        req.db.beginTransaction((err) => {
+        // 接続を取得してトランザクション開始
+        req.db.getConnection((err, connection) => {
             if (err) {
-                console.error('トランザクション開始エラー:', err);
+                console.error('データベース接続取得エラー:', err);
                 return res.status(500).json({
                     success: false,
                     message: 'データベースエラーが発生しました',
@@ -182,136 +200,161 @@ router.post('/', (req, res) => {
                 });
             }
 
-            // 生産計画登録
-            const insertQuery = `
-                INSERT INTO production_plans (
-                    building_no, 
-                    product_code, 
-                    planned_quantity, 
-                    start_date, 
-                    status, 
-                    remarks, 
-                    created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-            `;
-
-            const values = [
-                building_no,
-                product_code,
-                parseInt(planned_quantity),
-                start_date,
-                status,
-                remarks,
-                created_by
-            ];
-
-            req.db.query(insertQuery, values, (err, insertResult) => {
+            connection.beginTransaction((err) => {
                 if (err) {
-                    console.error('生産計画登録エラー:', err);
-                    return req.db.rollback(() => {
-                        res.status(500).json({
-                            success: false,
-                            message: 'データベースエラーが発生しました',
-                            error: err.message
-                        });
+                    connection.release();
+                    console.error('トランザクション開始エラー:', err);
+                    return res.status(500).json({
+                        success: false,
+                        message: 'データベースエラーが発生しました',
+                        error: err.message
                     });
                 }
 
-                const newPlanId = insertResult.insertId;
-
-                // 自動予約作成（計画・生産中ステータスの場合のみ）
-                if (status === '計画' || status === '生産中') {
-                    reservationManager.createReservations(
-                        req.db, 
-                        newPlanId, 
+                // 生産計画登録
+                const insertQuery = `
+                    INSERT INTO production_plans (
+                        building_no, 
                         product_code, 
-                        parseInt(planned_quantity), 
-                        created_by, 
-                        (err, reservations) => {
-                            if (err) {
-                                console.error('在庫予約作成エラー:', err);
-                                return req.db.rollback(() => {
-                                    res.status(500).json({
-                                        success: false,
-                                        message: '在庫予約の作成に失敗しました',
-                                        error: err.message
-                                    });
-                                });
-                            }
+                        planned_quantity, 
+                        start_date, 
+                        status, 
+                        remarks, 
+                        created_by
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                `;
 
-                            // トランザクションコミット
-                            req.db.commit((err) => {
+                const values = [
+                    building_no,
+                    product_code,
+                    parseInt(planned_quantity),
+                    start_date,
+                    status,
+                    remarks,
+                    created_by
+                ];
+
+                connection.query(insertQuery, values, (err, insertResult) => {
+                    if (err) {
+                        console.error('生産計画登録エラー:', err);
+                        return connection.rollback(() => {
+                            connection.release();
+                            res.status(500).json({
+                                success: false,
+                                message: 'データベースエラーが発生しました',
+                                error: err.message
+                            });
+                        });
+                    }
+
+                    const newPlanId = insertResult.insertId;
+                    console.log(`✅ 生産計画登録成功: ID=${newPlanId}`);
+
+                    // 自動予約作成（計画・生産中ステータスの場合のみ）
+                    if (status === '計画' || status === '生産中') {
+                        console.log(`🔄 在庫予約作成中: ステータス「${status}」`);
+                        
+                        reservationManager.createReservations(
+                            connection, 
+                            newPlanId, 
+                            product_code, 
+                            parseInt(planned_quantity), 
+                            created_by, 
+                            (err, reservations) => {
                                 if (err) {
-                                    console.error('トランザクションコミットエラー:', err);
-                                    return req.db.rollback(() => {
+                                    console.error('在庫予約作成エラー:', err);
+                                    return connection.rollback(() => {
+                                        connection.release();
                                         res.status(500).json({
                                             success: false,
-                                            message: 'データベースエラーが発生しました',
+                                            message: '在庫予約の作成に失敗しました',
                                             error: err.message
                                         });
                                     });
                                 }
 
-                                res.status(201).json({
-                                    success: true,
-                                    message: '生産計画が正常に登録され、在庫予約も作成されました',
-                                    data: {
-                                        id: newPlanId,
-                                        building_no,
-                                        product_code,
-                                        planned_quantity: parseInt(planned_quantity),
-                                        start_date,
-                                        status,
-                                        remarks,
-                                        created_by,
-                                        reservations: reservations
+                                // トランザクションコミット
+                                connection.commit((err) => {
+                                    if (err) {
+                                        console.error('トランザクションコミットエラー:', err);
+                                        return connection.rollback(() => {
+                                            connection.release();
+                                            res.status(500).json({
+                                                success: false,
+                                                message: 'データベースエラーが発生しました',
+                                                error: err.message
+                                            });
+                                        });
                                     }
-                                });
-                            });
-                        }
-                    );
-                } else {
-                    // 完了・キャンセルステータスの場合は予約なしでコミット
-                    req.db.commit((err) => {
-                        if (err) {
-                            console.error('トランザクションコミットエラー:', err);
-                            return req.db.rollback(() => {
-                                res.status(500).json({
-                                    success: false,
-                                    message: 'データベースエラーが発生しました',
-                                    error: err.message
-                                });
-                            });
-                        }
 
-                        res.status(201).json({
-                            success: true,
-                            message: '生産計画が正常に登録されました',
-                            data: {
-                                id: newPlanId,
-                                building_no,
-                                product_code,
-                                planned_quantity: parseInt(planned_quantity),
-                                start_date,
-                                status,
-                                remarks,
-                                created_by,
-                                reservations: []
+                                    connection.release();
+                                    console.log(`🎉 登録完了: 計画ID=${newPlanId}, 予約=${reservations.length}件`);
+                                    res.status(201).json({
+                                        success: true,
+                                        message: '生産計画が正常に登録され、在庫予約も作成されました',
+                                        data: {
+                                            id: newPlanId,
+                                            building_no,
+                                            product_code,
+                                            planned_quantity: parseInt(planned_quantity),
+                                            start_date,
+                                            status,
+                                            remarks,
+                                            created_by,
+                                            reservations: reservations
+                                        }
+                                    });
+                                });
                             }
+                        );
+                    } else {
+                        // 完了・キャンセルステータスの場合は予約なしでコミット
+                        connection.commit((err) => {
+                            if (err) {
+                                console.error('トランザクションコミットエラー:', err);
+                                return connection.rollback(() => {
+                                    connection.release();
+                                    res.status(500).json({
+                                        success: false,
+                                        message: 'データベースエラーが発生しました',
+                                        error: err.message
+                                    });
+                                });
+                            }
+
+                            connection.release();
+                            console.log(`🎉 登録完了: 計画ID=${newPlanId}, 予約なし`);
+                            res.status(201).json({
+                                success: true,
+                                message: '生産計画が正常に登録されました',
+                                data: {
+                                    id: newPlanId,
+                                    building_no,
+                                    product_code,
+                                    planned_quantity: parseInt(planned_quantity),
+                                    start_date,
+                                    status,
+                                    remarks,
+                                    created_by,
+                                    reservations: []
+                                }
+                            });
                         });
-                    });
-                }
+                    }
+                });
             });
         });
     });
 });
 
 // ==========================================
-// 4. 生産計画更新（自動予約更新機能付き）
+// 4. 生産計画更新（生産管理権限必要）
 // PUT /api/plans/:id
 // ==========================================
-router.put('/:id', (req, res) => {
+router.put('/:id', requireProductionAccess, (req, res) => {
     const planId = parseInt(req.params.id);
+    console.log(`📝 生産計画更新: ID=${planId}, ユーザー=${req.user.username} (${req.user.role})`);
+    
     const {
         building_no,
         product_code,
@@ -337,6 +380,7 @@ router.put('/:id', (req, res) => {
     });
 
     if (validationError) {
+        console.log(`❌ バリデーションエラー: ${validationError}`);
         return res.status(400).json({
             success: false,
             message: validationError
@@ -357,6 +401,7 @@ router.put('/:id', (req, res) => {
         }
 
         if (planResults.length === 0) {
+            console.log(`❌ 計画未発見: ID=${planId}`);
             return res.status(404).json({
                 success: false,
                 message: '指定された生産計画が見つかりません'
@@ -379,16 +424,17 @@ router.put('/:id', (req, res) => {
             }
 
             if (productResults.length === 0) {
+                console.log(`❌ 製品未発見: ${product_code}`);
                 return res.status(400).json({
                     success: false,
                     message: '指定された製品コードが見つかりません'
                 });
             }
 
-            // トランザクション開始
-            req.db.beginTransaction((err) => {
+            // 接続を取得してトランザクション開始
+            req.db.getConnection((err, connection) => {
                 if (err) {
-                    console.error('トランザクション開始エラー:', err);
+                    console.error('データベース接続取得エラー:', err);
                     return res.status(500).json({
                         success: false,
                         message: 'データベースエラーが発生しました',
@@ -396,100 +442,121 @@ router.put('/:id', (req, res) => {
                     });
                 }
 
-                // 生産計画更新
-                const updateQuery = `
-                    UPDATE production_plans SET 
-                        building_no = ?, 
-                        product_code = ?, 
-                        planned_quantity = ?, 
-                        start_date = ?, 
-                        status = ?, 
-                        remarks = ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                `;
-
-                const values = [
-                    building_no,
-                    product_code,
-                    parseInt(planned_quantity),
-                    start_date,
-                    newStatus,
-                    remarks,
-                    planId
-                ];
-
-                req.db.query(updateQuery, values, (err, updateResult) => {
+                connection.beginTransaction((err) => {
                     if (err) {
-                        console.error('生産計画更新エラー:', err);
-                        return req.db.rollback(() => {
-                            res.status(500).json({
-                                success: false,
-                                message: 'データベースエラーが発生しました',
-                                error: err.message
-                            });
+                        connection.release();
+                        console.error('トランザクション開始エラー:', err);
+                        return res.status(500).json({
+                            success: false,
+                            message: 'データベースエラーが発生しました',
+                            error: err.message
                         });
                     }
 
-                    if (updateResult.affectedRows === 0) {
-                        return req.db.rollback(() => {
-                            res.status(404).json({
-                                success: false,
-                                message: '更新対象の生産計画が見つかりません'
-                            });
-                        });
-                    }
+                    // 生産計画更新
+                    const updateQuery = `
+                        UPDATE production_plans SET 
+                            building_no = ?, 
+                            product_code = ?, 
+                            planned_quantity = ?, 
+                            start_date = ?, 
+                            status = ?, 
+                            remarks = ?,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    `;
 
-                    // 予約更新処理：既存予約削除 → 新しい予約作成
-                    reservationManager.updateReservations(
-                        req.db,
-                        planId,
+                    const values = [
+                        building_no,
                         product_code,
                         parseInt(planned_quantity),
+                        start_date,
                         newStatus,
-                        'system',
-                        (err, updateInfo) => {
-                            if (err) {
-                                console.error('予約更新エラー:', err);
-                                return req.db.rollback(() => {
-                                    res.status(500).json({
-                                        success: false,
-                                        message: '在庫予約の更新に失敗しました',
-                                        error: err.message
-                                    });
-                                });
-                            }
+                        remarks,
+                        planId
+                    ];
 
-                            // トランザクションコミット
-                            req.db.commit((err) => {
+                    connection.query(updateQuery, values, (err, updateResult) => {
+                        if (err) {
+                            console.error('生産計画更新エラー:', err);
+                            return connection.rollback(() => {
+                                connection.release();
+                                res.status(500).json({
+                                    success: false,
+                                    message: 'データベースエラーが発生しました',
+                                    error: err.message
+                                });
+                            });
+                        }
+
+                        if (updateResult.affectedRows === 0) {
+                            return connection.rollback(() => {
+                                connection.release();
+                                res.status(404).json({
+                                    success: false,
+                                    message: '更新対象の生産計画が見つかりません'
+                                });
+                            });
+                        }
+
+                        console.log(`✅ 生産計画更新成功: ID=${planId}`);
+
+                        // 予約更新処理：既存予約削除 → 新しい予約作成
+                        reservationManager.updateReservations(
+                            connection,
+                            planId,
+                            product_code,
+                            parseInt(planned_quantity),
+                            newStatus,
+                            req.user.username,
+                            (err, updateInfo) => {
                                 if (err) {
-                                    console.error('トランザクションコミットエラー:', err);
-                                    return req.db.rollback(() => {
+                                    console.error('予約更新エラー:', err);
+                                    return connection.rollback(() => {
+                                        connection.release();
                                         res.status(500).json({
                                             success: false,
-                                            message: 'データベースエラーが発生しました',
+                                            message: '在庫予約の更新に失敗しました',
                                             error: err.message
                                         });
                                     });
                                 }
 
-                                res.json({
-                                    success: true,
-                                    message: updateInfo.message,
-                                    data: {
-                                        id: planId,
-                                        building_no,
-                                        product_code,
-                                        planned_quantity: parseInt(planned_quantity),
-                                        start_date,
-                                        status: newStatus,
-                                        remarks,
-                                        reservation_update: updateInfo
+                                // トランザクションコミット
+                                connection.commit((err) => {
+                                    if (err) {
+                                        console.error('トランザクションコミットエラー:', err);
+                                        return connection.rollback(() => {
+                                            connection.release();
+                                            res.status(500).json({
+                                                success: false,
+                                                message: 'データベースエラーが発生しました',
+                                                error: err.message
+                                            });
+                                        });
                                     }
+
+                                    connection.release();
+                                    console.log(`🎉 更新完了: 計画ID=${planId}, 予約更新=${updateInfo.action}`);
+                                    res.json({
+                                        success: true,
+                                        message: updateInfo.message,
+                                        data: {
+                                            id: planId,
+                                            building_no,
+                                            product_code,
+                                            planned_quantity: parseInt(planned_quantity),
+                                            start_date,
+                                            status: newStatus,
+                                            remarks,
+                                            updated_by: req.user.username,
+                                            reservation_update: updateInfo
+                                        }
+                                    });
                                 });
-                            });
-                        }
-                    );
+                            }
+                        );
+                    });
                 });
             });
         });
@@ -497,11 +564,12 @@ router.put('/:id', (req, res) => {
 });
 
 // ==========================================
-// 5. 生産計画削除（自動予約解除機能付き）
+// 5. 生産計画削除（生産管理権限必要）
 // DELETE /api/plans/:id
 // ==========================================
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireProductionAccess, (req, res) => {
     const planId = parseInt(req.params.id);
+    console.log(`🗑️ 生産計画削除: ID=${planId}, ユーザー=${req.user.username} (${req.user.role})`);
 
     if (isNaN(planId)) {
         return res.status(400).json({
@@ -524,6 +592,7 @@ router.delete('/:id', (req, res) => {
         }
 
         if (results.length === 0) {
+            console.log(`❌ 計画未発見: ID=${planId}`);
             return res.status(404).json({
                 success: false,
                 message: '指定された生産計画が見つかりません'
@@ -546,6 +615,7 @@ router.delete('/:id', (req, res) => {
             }
 
             const reservationCount = reservationResults[0].reservation_count;
+            console.log(`📊 予約確認: ${reservationCount}件の予約が存在`);
 
             // 削除実行（CASCADE設定により関連予約も自動削除される）
             const deleteQuery = 'DELETE FROM production_plans WHERE id = ?';
@@ -567,13 +637,15 @@ router.delete('/:id', (req, res) => {
                     });
                 }
 
+                console.log(`🎉 削除完了: 計画ID=${planId}, 予約削除=${reservationCount}件`);
                 res.json({
                     success: true,
                     message: `生産計画（ID: ${planId}）が正常に削除され、${reservationCount}件の在庫予約も自動解除されました`,
                     data: {
                         id: planId,
                         deleted_plan: plan,
-                        deleted_reservations_count: reservationCount
+                        deleted_reservations_count: reservationCount,
+                        deleted_by: req.user.username
                     }
                 });
             });
@@ -582,14 +654,17 @@ router.delete('/:id', (req, res) => {
 });
 
 // ==========================================
-// 6. ステータス別生産計画取得
+// 6. ステータス別生産計画取得（全認証ユーザー可）
 // GET /api/plans/status/:status
 // ==========================================
-router.get('/status/:status', (req, res) => {
+router.get('/status/:status', requireReadAccess, (req, res) => {
     const status = req.params.status;
+    console.log(`📋 ステータス別取得: ${status}, ユーザー=${req.user.username} (${req.user.role})`);
+    
     const validStatuses = ['計画', '生産中', '完了', 'キャンセル'];
 
     if (!validStatuses.includes(status)) {
+        console.log(`❌ 無効ステータス: ${status}`);
         return res.status(400).json({
             success: false,
             message: '無効なステータスです'
@@ -633,6 +708,7 @@ router.get('/status/:status', (req, res) => {
             updated_at: plan.updated_at ? plan.updated_at.toISOString() : null
         }));
 
+        console.log(`✅ ステータス別取得成功: ${formattedResults.length}件`);
         res.json({
             success: true,
             data: formattedResults,
