@@ -219,8 +219,9 @@ app.use('/api/available-inventory', availableInventoryRoutes);
 app.use('/api/bom', bommanagementRoutes);
 app.use('/api/plans', production_plansRoutes);
 app.use('/api/stocktaking', stocktakingRoutes);
-app.use('/api/alerts', procurementAlertsRoutes);
+app.use('/api/procurement-alerts', procurementAlertsRoutes);
 app.use('/api/reports', reportsRoutes);
+
 
 // 404エラーハンドリング
 app.use('*', (req, res) => {
