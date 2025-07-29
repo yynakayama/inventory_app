@@ -396,6 +396,218 @@ router.post('/:part_code/receipt', authenticateToken, requireMaterialAccess, asy
 });
 
 // ==========================================
+// 統合入荷処理API（新機能追加）
+// POST /api/inventory/:part_code/integrated-receipt
+// 権限: admin + material_staff（資材管理権限）
+// 目的: 在庫更新と予定入荷ステータス更新を1回のAPIで実行
+// ==========================================
+router.post('/:part_code/integrated-receipt', authenticateToken, requireMaterialAccess, async (req, res) => {
+    let connection;
+    
+    try {
+        const { part_code } = req.params;
+        const { 
+            quantity, 
+            supplier = '', 
+            receipt_date,
+            remarks = '', 
+            scheduled_receipt_id = null 
+        } = req.body;
+        
+        // バリデーション
+        if (typeof quantity !== 'number' || quantity <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: '入荷数量は1以上の数値で入力してください',
+                error: 'INVALID_QUANTITY'
+            });
+        }
+        
+        if (!receipt_date) {
+            return res.status(400).json({
+                success: false,
+                message: '入荷日は必須です',
+                error: 'MISSING_RECEIPT_DATE'
+            });
+        }
+        
+        console.log(`[${new Date().toISOString()}] 🔄 統合入荷処理開始: ユーザー=${req.user.username}, 部品=${part_code}, 数量=${quantity}, 予定入荷ID=${scheduled_receipt_id || 'なし'}`);
+        
+        connection = await mysql.createConnection(dbConfig);
+        await connection.beginTransaction();
+        
+        // 1. 部品マスタの存在確認
+        const [partResults] = await connection.execute(
+            'SELECT part_code FROM parts WHERE part_code = ? AND is_active = true',
+            [part_code]
+        );
+        
+        if (partResults.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({
+                success: false,
+                message: '指定された部品が見つかりません',
+                error: 'PART_NOT_FOUND'
+            });
+        }
+        
+        // 2. 予定入荷IDが指定されている場合の検証
+        let scheduledReceiptData = null;
+        if (scheduled_receipt_id) {
+            const [scheduledResults] = await connection.execute(
+                'SELECT * FROM scheduled_receipts WHERE id = ? AND part_code = ?',
+                [scheduled_receipt_id, part_code]
+            );
+            
+            if (scheduledResults.length === 0) {
+                await connection.rollback();
+                return res.status(404).json({
+                    success: false,
+                    message: '指定された予定入荷が見つかりません',
+                    error: 'SCHEDULED_RECEIPT_NOT_FOUND'
+                });
+            }
+            
+            scheduledReceiptData = scheduledResults[0];
+            
+            // 入荷予定状態のみ処理可能
+            if (scheduledReceiptData.status !== '入荷予定') {
+                await connection.rollback();
+                return res.status(400).json({
+                    success: false,
+                    message: `ステータスが「入荷予定」の発注のみ処理できます（現在: ${scheduledReceiptData.status}）`,
+                    error: 'INVALID_SCHEDULED_RECEIPT_STATUS'
+                });
+            }
+        }
+        
+        // 3. 在庫レコードの存在確認・作成
+        const [inventoryResults] = await connection.execute(
+            'SELECT current_stock FROM inventory WHERE part_code = ?',
+            [part_code]
+        );
+        
+        let currentStock = 0;
+        
+        if (inventoryResults.length === 0) {
+            // 在庫レコードが存在しない場合は新規作成
+            await connection.execute(
+                'INSERT INTO inventory (part_code, current_stock, reserved_stock, updated_at) VALUES (?, 0, 0, NOW())',
+                [part_code]
+            );
+        } else {
+            currentStock = inventoryResults[0].current_stock;
+        }
+        
+        const newStock = currentStock + quantity;
+        
+        // 4. 在庫数量を更新
+        await connection.execute(
+            'UPDATE inventory SET current_stock = ?, updated_at = NOW() WHERE part_code = ?',
+            [newStock, part_code]
+        );
+        
+        // 5. 在庫トランザクション履歴を記録
+        const historyRemarks = scheduled_receipt_id 
+            ? `統合入荷処理: ${remarks} (予定入荷ID: ${scheduled_receipt_id}, 仕入先: ${supplier}) (実行者: ${req.user.username})`
+            : `統合入荷処理: ${remarks}${supplier ? ` (仕入先: ${supplier})` : ''} (実行者: ${req.user.username})`;
+        
+        await connection.execute(
+            `INSERT INTO inventory_transactions 
+             (part_code, transaction_type, quantity, before_stock, after_stock, reference_id, remarks, transaction_date, created_by) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)`,
+            [part_code, '入荷', quantity, currentStock, newStock, scheduled_receipt_id, historyRemarks, req.user.username]
+        );
+        
+        // 6. 予定入荷ステータス更新（指定された場合のみ）
+        let scheduledReceiptUpdate = null;
+        if (scheduled_receipt_id && scheduledReceiptData) {
+            await connection.execute(`
+                UPDATE scheduled_receipts 
+                SET 
+                    status = '入荷済み',
+                    remarks = CONCAT(COALESCE(remarks, ''), '\n統合入荷実績: ', ?, '個 (', ?, ') - 統合処理'),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `, [quantity, receipt_date, scheduled_receipt_id]);
+            
+            // 更新後の予定入荷情報を取得
+            const [updatedScheduledReceipt] = await connection.execute(`
+                SELECT 
+                    sr.*,
+                    p.specification
+                FROM scheduled_receipts sr
+                JOIN parts p ON sr.part_code = p.part_code
+                WHERE sr.id = ?
+            `, [scheduled_receipt_id]);
+            
+            scheduledReceiptUpdate = {
+                id: scheduled_receipt_id,
+                order_no: scheduledReceiptData.order_no,
+                status_updated: true,
+                old_status: scheduledReceiptData.status,
+                new_status: '入荷済み',
+                scheduled_quantity: scheduledReceiptData.scheduled_quantity,
+                actual_quantity: quantity,
+                updated_data: updatedScheduledReceipt[0]
+            };
+        }
+        
+        await connection.commit();
+        
+        const logMessage = scheduled_receipt_id 
+            ? `✅ 統合入荷処理完了: ${part_code} ${currentStock} → ${newStock} (+${quantity}) 予定入荷ID:${scheduled_receipt_id} by ${req.user.username}`
+            : `✅ 統合入荷処理完了: ${part_code} ${currentStock} → ${newStock} (+${quantity}) by ${req.user.username}`;
+        
+        console.log(logMessage);
+        
+        // レスポンス構築
+        const responseData = {
+            part_code,
+            receipt_quantity: quantity,
+            old_stock: currentStock,
+            new_stock: newStock,
+            supplier,
+            receipt_date,
+            processed_by: req.user.username,
+            processing_type: scheduled_receipt_id ? 'integrated_with_scheduled_receipt' : 'direct_receipt'
+        };
+        
+        if (scheduledReceiptUpdate) {
+            responseData.scheduled_receipt = scheduledReceiptUpdate;
+        }
+        
+        res.json({
+            success: true,
+            message: scheduled_receipt_id 
+                ? '統合入荷処理が完了しました（在庫更新+予定入荷ステータス更新）'
+                : '統合入荷処理が完了しました（在庫更新のみ）',
+            data: responseData
+        });
+
+    } catch (error) {
+        if (connection) {
+            try {
+                await connection.rollback();
+                console.log('🔄 トランザクションロールバック実行');
+            } catch (rollbackError) {
+                console.error('❌ ロールバックエラー:', rollbackError);
+            }
+        }
+        
+        console.error('❌ 統合入荷処理エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '統合入荷処理中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+
+// ==========================================
 // 出庫処理API
 // POST /api/inventory/:part_code/issue
 // 権限: admin + material_staff（資材管理権限）
