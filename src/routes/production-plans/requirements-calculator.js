@@ -1,6 +1,7 @@
 // ==========================================
 // 所要量計算モジュール
-// File: routes/production-plans/requirements-calculator.js
+// ファイル: src/routes/production-plans/requirements-calculator.js
+// 目的: 生産計画から必要部品とその数量を算出し、在庫充足性をチェック
 // ==========================================
 
 const express = require('express');
@@ -21,39 +22,38 @@ const { requireReadAccess } = require('../../middleware/auth');
 // 所要量計算機能（全認証ユーザー可）
 // POST /api/plans/:id/requirements
 // ==========================================
-router.post('/:id/requirements', requireReadAccess, (req, res) => {
-    const planId = parseInt(req.params.id);
-    console.log(`📊 所要量計算開始: 計画ID=${planId}, ユーザー=${req.user.username} (${req.user.role})`);
-
-    if (isNaN(planId)) {
-        return res.status(400).json({
-            success: false,
-            message: '無効な生産計画IDです'
-        });
-    }
-
-    // 1. 生産計画の存在チェック
-    const planCheckQuery = `
-        SELECT id, product_code, planned_quantity, start_date, status 
-        FROM production_plans 
-        WHERE id = ?
-    `;
-
-    req.db.query(planCheckQuery, [planId], (err, planResults) => {
-        if (err) {
-            console.error('❌ 生産計画存在チェックエラー:', err);
-            return res.status(500).json({
+router.post('/:id/requirements', requireReadAccess, async (req, res) => {
+    let connection;
+    
+    try {
+        const planId = parseInt(req.params.id);
+        
+        if (isNaN(planId)) {
+            return res.status(400).json({
                 success: false,
-                message: 'データベースエラーが発生しました',
-                error: err.message
+                message: '無効な生産計画IDです',
+                error: 'INVALID_PLAN_ID'
             });
         }
 
+        console.log(`[${new Date().toISOString()}] 📊 所要量計算開始: 計画ID=${planId}, ユーザー=${req.user.username} (${req.user.role})`);
+
+        connection = await req.mysql.createConnection(req.dbConfig);
+
+        // 1. 生産計画の存在チェック
+        const [planResults] = await connection.execute(
+            `SELECT id, product_code, planned_quantity, start_date, status 
+             FROM production_plans 
+             WHERE id = ?`,
+            [planId]
+        );
+
         if (planResults.length === 0) {
-            console.log(`❌ 計画未発見: ID=${planId}`);
             return res.status(404).json({
                 success: false,
-                message: '指定された生産計画が見つかりません'
+                message: '指定された生産計画が見つかりません',
+                error: 'PLAN_NOT_FOUND',
+                plan_id: planId
             });
         }
 
@@ -62,37 +62,37 @@ router.post('/:id/requirements', requireReadAccess, (req, res) => {
 
         // 2. ステータスチェック（完了・キャンセル済みは計算不要）
         if (planInfo.status === '完了' || planInfo.status === 'キャンセル') {
-            console.log(`⚠️ 計算不可: ステータス「${planInfo.status}」`);
             return res.status(400).json({
                 success: false,
-                message: `ステータス「${planInfo.status}」の生産計画は所要量計算できません`
+                message: `ステータス「${planInfo.status}」の生産計画は所要量計算できません`,
+                error: 'INVALID_STATUS_FOR_CALCULATION'
             });
         }
 
         // 3. 在庫充足性チェック付き所要量計算
-        performRequirementsCalculation(req.db, planId, planInfo, (err, calculationResult) => {
-            if (err) {
-                console.error('❌ 所要量計算エラー:', err);
-                return res.status(500).json({
-                    success: false,
-                    message: 'データベースエラーが発生しました',
-                    error: err.message
-                });
-            }
+        const calculationResult = await performRequirementsCalculation(connection, planId, planInfo);
 
-            // 実行ユーザー情報を追加
-            calculationResult.data.calculated_by = {
-                username: req.user.username,
-                role: req.user.role,
-                calculation_time: new Date().toISOString()
-            };
+        // 実行ユーザー情報を追加
+        calculationResult.data.calculated_by = {
+            username: req.user.username,
+            role: req.user.role,
+            calculation_time: new Date().toISOString()
+        };
 
-            console.log(`✅ 所要量計算完了: ユーザー=${req.user.username}`);
-            res.json(calculationResult);
+        console.log(`✅ 所要量計算完了: ユーザー=${req.user.username}`);
+        res.json(calculationResult);
+
+    } catch (error) {
+        console.error('❌ 所要量計算エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '所要量計算中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
-    });
+    } finally {
+        if (connection) await connection.end();
+    }
 });
-
 
 // ==========================================
 // 所要量計算の主処理
@@ -100,17 +100,17 @@ router.post('/:id/requirements', requireReadAccess, (req, res) => {
 
 /**
  * 所要量計算と在庫充足性チェックを実行
- * @param {Object} db - データベース接続
+ * @param {Object} connection - データベース接続
  * @param {number} planId - 生産計画ID
  * @param {Object} planInfo - 生産計画情報
- * @param {Function} callback - コールバック関数 (err, result)
+ * @returns {Object} 計算結果
  */
-function performRequirementsCalculation(db, planId, planInfo, callback) {
+async function performRequirementsCalculation(connection, planId, planInfo) {
     console.log(`🔄 所要量計算実行中...`);
 
     // 在庫充足性チェック付き所要量計算（inventory_sufficiency_check VIEWを使用）
-    const requirementsQuery = `
-        SELECT 
+    const [requirements] = await connection.execute(
+        `SELECT 
             plan_id,
             product_code,
             planned_quantity,
@@ -128,28 +128,17 @@ function performRequirementsCalculation(db, planId, planInfo, callback) {
             lead_time_days
         FROM inventory_sufficiency_check 
         WHERE plan_id = ?
-        ORDER BY part_code
-    `;
+        ORDER BY part_code`,
+        [planId]
+    );
 
-    db.query(requirementsQuery, [planId], (err, requirements) => {
-        if (err) {
-            console.error('❌ 在庫充足性計算エラー:', err);
-            return callback(err);
-        }
+    console.log(`📋 所要量計算結果: ${requirements.length}種類の部品`);
 
-        console.log(`📋 所要量計算結果: ${requirements.length}種類の部品`);
+    // 工程別詳細情報を取得
+    const stationDetails = await getStationDetails(connection, planId);
 
-        // 工程別詳細情報を取得
-        getStationDetails(db, planId, (err, stationDetails) => {
-            if (err) {
-                console.error('❌ 工程詳細取得エラー:', err);
-                return callback(err);
-            }
-
-            // 計算結果を構築
-            buildCalculationResult(planInfo, requirements, stationDetails, callback);
-        });
-    });
+    // 計算結果を構築
+    return buildCalculationResult(planInfo, requirements, stationDetails);
 }
 
 // ==========================================
@@ -158,13 +147,13 @@ function performRequirementsCalculation(db, planId, planInfo, callback) {
 
 /**
  * どの工程でどの部品を使用するかの詳細情報を取得
- * @param {Object} db - データベース接続
+ * @param {Object} connection - データベース接続
  * @param {number} planId - 生産計画ID
- * @param {Function} callback - コールバック関数 (err, stationDetails)
+ * @returns {Array} 工程別詳細データ
  */
-function getStationDetails(db, planId, callback) {
-    const stationDetailsQuery = `
-        SELECT 
+async function getStationDetails(connection, planId) {
+    const [stationDetails] = await connection.execute(
+        `SELECT 
             part_code,
             station_code,
             process_group,
@@ -172,17 +161,12 @@ function getStationDetails(db, planId, callback) {
             required_quantity
         FROM production_plan_requirements 
         WHERE plan_id = ?
-        ORDER BY process_group, station_code, part_code
-    `;
+        ORDER BY process_group, station_code, part_code`,
+        [planId]
+    );
 
-    db.query(stationDetailsQuery, [planId], (err, stationDetails) => {
-        if (err) {
-            return callback(err);
-        }
-
-        console.log(`🏭 工程詳細取得: ${stationDetails.length}件の工程-部品関係`);
-        callback(null, stationDetails);
-    });
+    console.log(`🏭 工程詳細取得: ${stationDetails.length}件の工程-部品関係`);
+    return stationDetails;
 }
 
 // ==========================================
@@ -194,15 +178,15 @@ function getStationDetails(db, planId, callback) {
  * @param {Object} planInfo - 生産計画情報
  * @param {Array} requirements - 所要量計算結果
  * @param {Array} stationDetails - 工程別詳細
- * @param {Function} callback - コールバック関数 (err, result)
+ * @returns {Object} 計算結果
  */
-function buildCalculationResult(planInfo, requirements, stationDetails, callback) {
+function buildCalculationResult(planInfo, requirements, stationDetails) {
     console.log(`🔨 計算結果構築中...`);
 
     // BOM未設定チェック
     if (requirements.length === 0) {
         console.log(`⚠️ BOM未設定: 製品「${planInfo.product_code}」`);
-        return callback(null, {
+        return {
             success: false,
             message: `製品「${planInfo.product_code}」のBOM（部品構成）が登録されていません`,
             data: {
@@ -216,7 +200,7 @@ function buildCalculationResult(planInfo, requirements, stationDetails, callback
                     shortage_parts: []
                 }
             }
-        });
+        };
     }
 
     // 工程別詳細データをマップ化
@@ -277,11 +261,11 @@ function buildCalculationResult(planInfo, requirements, stationDetails, callback
 
     console.log(`✅ ${message}`);
 
-    callback(null, {
+    return {
         success: true,
         message: message,
         data: responseData
-    });
+    };
 }
 
 // ==========================================
@@ -329,6 +313,5 @@ function buildShortageDetails(shortageRparts, stationMap) {
         lead_time_days: req.lead_time_days
     }));
 }
-
 
 module.exports = router;

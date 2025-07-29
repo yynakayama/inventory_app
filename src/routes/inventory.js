@@ -1,516 +1,570 @@
+// ==========================================
+// 在庫管理API
+// ファイル: src/routes/inventory.js
+// 目的: 在庫データの参照・更新・入出庫処理・履歴管理
+// ==========================================
+
 const express = require('express');
-const router = express.Router();
+const mysql = require('mysql2/promise');
 const { authenticateToken, requireMaterialAccess, requireReadAccess } = require('../middleware/auth');
 
-/**
- * 在庫一覧取得API
- * GET /api/inventory
- * 権限: 全認証ユーザー（参照権限）
- * クエリパラメータ:
- * - search: 部品コード・仕様での検索
- * - category: カテゴリでのフィルタ
- * - low_stock: 安全在庫を下回る部品のみ表示
- */
-router.get('/', authenticateToken, requireReadAccess, (req, res) => {
-  const { search, category, low_stock } = req.query;
-  
-  let sql = `
-    SELECT 
-      i.part_code,
-      p.specification,
-      p.safety_stock,
-      p.lead_time_days,
-      p.supplier,
-      p.category,
-      i.current_stock,
-      i.reserved_stock,
-      (i.current_stock - i.reserved_stock) as available_stock,
-      i.updated_at,
-      CASE 
-        WHEN i.current_stock <= COALESCE(p.safety_stock, 0) THEN true 
-        ELSE false 
-      END as is_low_stock
-    FROM inventory i
-    LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
-    WHERE 1=1
-  `;
-  
-  const params = [];
-  
-  // 検索条件の追加（部品コードまたは仕様で検索）
-  if (search) {
-    sql += ` AND (i.part_code LIKE ? OR p.specification LIKE ?)`;
-    const searchPattern = `%${search}%`;
-    params.push(searchPattern, searchPattern);
-  }
-  
-  // カテゴリフィルタの追加
-  if (category) {
-    sql += ` AND p.category = ?`;
-    params.push(category);
-  }
-  
-  // 安全在庫切れフィルタの追加
-  if (low_stock === 'true') {
-    sql += ` AND i.current_stock <= COALESCE(p.safety_stock, 0)`;
-  }
-  
-  sql += ` ORDER BY i.part_code`;
-  
-  req.db.query(sql, params, (err, results) => {
-    if (err) {
-      console.error('在庫一覧取得エラー:', err.message);
-      res.status(500).json({
-        success: false,
-        message: 'サーバーエラーが発生しました',
-        error: err.message
-      });
-      return;
-    }
-    
-    res.json({
-      success: true,
-      data: results,
-      total: results.length,
-      // 認証ユーザー情報を追加（デバッグ用）
-      user_info: {
-        user_id: req.user.user_id,
-        role: req.user.role
-      }
-    });
-  });
-});
+const router = express.Router();
 
-/**
- * 特定部品の在庫詳細取得API
- * GET /api/inventory/:part_code
- * 権限: 全認証ユーザー（参照権限）
- */
-router.get('/:part_code', authenticateToken, requireReadAccess, (req, res) => {
-  const { part_code } = req.params;
-  
-  const sql = `
-    SELECT 
-      i.part_code,
-      p.specification,
-      COALESCE(p.safety_stock, 0) as safety_stock,
-      COALESCE(p.lead_time_days, 0) as lead_time_days,
-      p.supplier,
-      p.category,
-      p.unit_price,
-      i.current_stock,
-      i.reserved_stock,
-      (i.current_stock - i.reserved_stock) as available_stock,
-      i.updated_at,
-      CASE 
-        WHEN i.current_stock <= COALESCE(p.safety_stock, 0) THEN true 
-        ELSE false 
-      END as is_low_stock
-    FROM inventory i
-    LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
-    WHERE i.part_code = ?
-  `;
-  
-  req.db.query(sql, [part_code], (err, results) => {
-    if (err) {
-      console.error('在庫詳細取得エラー:', err.message);
-      res.status(500).json({
-        success: false,
-        message: 'サーバーエラーが発生しました',
-        error: err.message
-      });
-      return;
-    }
-    
-    if (results.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: '指定された部品の在庫情報が見つかりません'
-      });
-    }
-    
-    res.json({
-      success: true,
-      data: results[0]
-    });
-  });
-});
+// データベース接続設定
+const dbConfig = {
+    host: process.env.DB_HOST || 'mysql',
+    port: process.env.DB_PORT || 3306,
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASSWORD || 'password',
+    database: process.env.DB_NAME || 'inventory_db',
+    charset: 'utf8mb4'
+};
 
-/**
- * 在庫数量更新API（手動調整）
- * PUT /api/inventory/:part_code
- * 権限: admin + material_staff（資材管理権限）
- * Body: { current_stock: number, reason?: string }
- */
-router.put('/:part_code', authenticateToken, requireMaterialAccess, (req, res) => {
-  const { part_code } = req.params;
-  const { current_stock, reason = '手動調整' } = req.body;
-  
-  // バリデーション
-  if (typeof current_stock !== 'number' || current_stock < 0) {
-    return res.status(400).json({
-      success: false,
-      message: '在庫数量は0以上の数値で入力してください'
-    });
-  }
-  
-  // 現在の在庫情報を取得
-  const getCurrentQuery = 'SELECT current_stock, reserved_stock FROM inventory WHERE part_code = ?';
-  
-  req.db.query(getCurrentQuery, [part_code], (err, currentResults) => {
-    if (err) {
-      console.error('現在在庫取得エラー:', err.message);
-      res.status(500).json({
-        success: false,
-        message: '現在在庫の取得に失敗しました',
-        error: err.message
-      });
-      return;
-    }
+// ==========================================
+// 在庫一覧取得API
+// GET /api/inventory
+// 権限: 全認証ユーザー（参照権限）
+// ==========================================
+router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
+    let connection;
     
-    if (currentResults.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: '指定された部品が見つかりません'
-      });
-    }
-    
-    const oldStock = currentResults[0].current_stock;
-    const reservedStock = currentResults[0].reserved_stock;
-    
-    // 在庫マイナス防止チェック（予約在庫考慮）
-    if (current_stock < reservedStock) {
-      return res.status(400).json({
-        success: false,
-        message: `在庫数量は予約済み在庫（${reservedStock}）以上である必要があります`
-      });
-    }
-    
-    // 在庫数量を更新
-    const updateQuery = 'UPDATE inventory SET current_stock = ?, updated_at = NOW() WHERE part_code = ?';
-    
-    req.db.query(updateQuery, [current_stock, part_code], (err, updateResult) => {
-      if (err) {
-        console.error('在庫更新エラー:', err.message);
-        res.status(500).json({
-          success: false,
-          message: '在庫更新に失敗しました',
-          error: err.message
-        });
-        return;
-      }
-      
-      // 在庫履歴を記録（認証ユーザー情報を記録）
-      const stockDifference = current_stock - oldStock;
-      const historyQuery = `
-        INSERT INTO inventory_transactions 
-        (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date, created_by) 
-        VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
-      `;
-      
-      const historyRemarks = `${reason} (実行者: ${req.user.username})`;
-      
-      req.db.query(historyQuery, [part_code, '手動調整', stockDifference, oldStock, current_stock, historyRemarks, req.user.user_id], (err, historyResult) => {
-        if (err) {
-          console.error('履歴記録エラー:', err.message);
-          // 履歴記録エラーは警告のみ、レスポンスは正常とする
-          console.warn('在庫履歴の記録に失敗しましたが、在庫更新は完了しました');
+    try {
+        const { search, category, low_stock } = req.query;
+        
+        console.log(`[${new Date().toISOString()}] 📦 在庫一覧取得開始: ユーザー=${req.user.username}, 検索=${search || 'なし'}`);
+        
+        connection = await mysql.createConnection(dbConfig);
+        
+        let sql = `
+            SELECT 
+                i.part_code,
+                p.specification,
+                p.safety_stock,
+                p.lead_time_days,
+                p.supplier,
+                p.category,
+                i.current_stock,
+                i.reserved_stock,
+                (i.current_stock - i.reserved_stock) as available_stock,
+                i.updated_at,
+                CASE 
+                    WHEN i.current_stock <= COALESCE(p.safety_stock, 0) THEN true 
+                    ELSE false 
+                END as is_low_stock
+            FROM inventory i
+            LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
+            WHERE 1=1
+        `;
+        
+        const params = [];
+        
+        // 検索条件の追加（部品コードまたは仕様で検索）
+        if (search && search.trim()) {
+            sql += ` AND (i.part_code LIKE ? OR p.specification LIKE ?)`;
+            const searchPattern = `%${search.trim()}%`;
+            params.push(searchPattern, searchPattern);
         }
         
+        // カテゴリフィルタの追加
+        if (category && category.trim()) {
+            sql += ` AND p.category = ?`;
+            params.push(category.trim());
+        }
+        
+        // 安全在庫切れフィルタの追加
+        if (low_stock === 'true') {
+            sql += ` AND i.current_stock <= COALESCE(p.safety_stock, 0)`;
+        }
+        
+        sql += ` ORDER BY i.part_code`;
+        
+        const [results] = await connection.execute(sql, params);
+        
+        console.log(`✅ 在庫一覧取得完了: ${results.length}件（安全在庫割れ: ${results.filter(r => r.is_low_stock).length}件）`);
+        
         res.json({
-          success: true,
-          message: '在庫数量を更新しました',
-          data: {
-            part_code,
-            old_stock: oldStock,
-            new_stock: current_stock,
-            difference: stockDifference,
-            updated_by: req.user.username
-          }
+            success: true,
+            data: results,
+            total: results.length,
+            filters: { search, category, low_stock },
+            user_info: {
+                username: req.user.username,
+                role: req.user.role
+            },
+            message: `在庫一覧を${results.length}件取得しました`
         });
-      });
-    });
-  });
+
+    } catch (error) {
+        console.error('❌ 在庫一覧取得エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '在庫一覧の取得中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        if (connection) await connection.end();
+    }
 });
 
-/**
- * 入荷処理API
- * POST /api/inventory/:part_code/receipt
- * 権限: admin + material_staff（資材管理権限）
- * Body: { quantity: number, supplier?: string, remarks?: string }
- */
-router.post('/:part_code/receipt', authenticateToken, requireMaterialAccess, (req, res) => {
-  const { part_code } = req.params;
-  const { quantity, supplier = '', remarks = '' } = req.body;
-  
-  // バリデーション
-  if (typeof quantity !== 'number' || quantity <= 0) {
-    return res.status(400).json({
-      success: false,
-      message: '入荷数量は1以上の数値で入力してください'
-    });
-  }
-  
-  // 部品マスタの存在確認
-  const partCheckQuery = 'SELECT part_code FROM parts WHERE part_code = ? AND is_active = true';
-  
-  req.db.query(partCheckQuery, [part_code], (err, partResults) => {
-    if (err) {
-      console.error('部品存在確認エラー:', err.message);
-      res.status(500).json({
-        success: false,
-        message: '部品存在確認に失敗しました',
-        error: err.message
-      });
-      return;
-    }
+// ==========================================
+// 特定部品の在庫詳細取得API
+// GET /api/inventory/:part_code
+// 権限: 全認証ユーザー（参照権限）
+// ==========================================
+router.get('/:part_code', authenticateToken, requireReadAccess, async (req, res) => {
+    let connection;
     
-    if (partResults.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: '指定された部品が見つかりません'
-      });
-    }
-    
-    // 在庫レコードの存在確認・作成
-    const inventoryCheckQuery = 'SELECT current_stock FROM inventory WHERE part_code = ?';
-    
-    req.db.query(inventoryCheckQuery, [part_code], (err, inventoryResults) => {
-      if (err) {
-        console.error('在庫確認エラー:', err.message);
-        res.status(500).json({
-          success: false,
-          message: '在庫確認に失敗しました',
-          error: err.message
-        });
-        return;
-      }
-      
-      let currentStock = 0;
-      
-      if (inventoryResults.length === 0) {
-        // 在庫レコードが存在しない場合は新規作成
-        const createInventoryQuery = 'INSERT INTO inventory (part_code, current_stock, reserved_stock, updated_at) VALUES (?, 0, 0, NOW())';
+    try {
+        const { part_code } = req.params;
         
-        req.db.query(createInventoryQuery, [part_code], (err, createResult) => {
-          if (err) {
-            console.error('在庫レコード作成エラー:', err.message);
-            res.status(500).json({
-              success: false,
-              message: '在庫レコードの作成に失敗しました',
-              error: err.message
+        console.log(`[${new Date().toISOString()}] 🔍 在庫詳細取得開始: ユーザー=${req.user.username}, 部品=${part_code}`);
+        
+        connection = await mysql.createConnection(dbConfig);
+        
+        const sql = `
+            SELECT 
+                i.part_code,
+                p.specification,
+                COALESCE(p.safety_stock, 0) as safety_stock,
+                COALESCE(p.lead_time_days, 0) as lead_time_days,
+                p.supplier,
+                p.category,
+                p.unit_price,
+                i.current_stock,
+                i.reserved_stock,
+                (i.current_stock - i.reserved_stock) as available_stock,
+                i.updated_at,
+                CASE 
+                    WHEN i.current_stock <= COALESCE(p.safety_stock, 0) THEN true 
+                    ELSE false 
+                END as is_low_stock
+            FROM inventory i
+            LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
+            WHERE i.part_code = ?
+        `;
+        
+        const [results] = await connection.execute(sql, [part_code]);
+        
+        if (results.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: '指定された部品の在庫情報が見つかりません',
+                error: 'INVENTORY_NOT_FOUND',
+                part_code: part_code
             });
-            return;
-          }
-          
-          // 作成後、入荷処理を実行
-          processReceipt(part_code, quantity, 0, supplier, remarks, req, res);
-        });
-      } else {
-        currentStock = inventoryResults[0].current_stock;
-        // 既存レコードがある場合、入荷処理を実行
-        processReceipt(part_code, quantity, currentStock, supplier, remarks, req, res);
-      }
-    });
-  });
-});
-
-/**
- * 入荷処理の実行部分（内部関数）
- * 認証ユーザー情報を履歴に記録
- */
-function processReceipt(part_code, quantity, currentStock, supplier, remarks, req, res) {
-  const newStock = currentStock + quantity;
-  
-  // 在庫数量を更新
-  const updateQuery = 'UPDATE inventory SET current_stock = ?, updated_at = NOW() WHERE part_code = ?';
-  
-  req.db.query(updateQuery, [newStock, part_code], (err, updateResult) => {
-    if (err) {
-      console.error('在庫更新エラー:', err.message);
-      res.status(500).json({
-        success: false,
-        message: '在庫更新に失敗しました',
-        error: err.message
-      });
-      return;
-    }
-    
-    // 在庫トランザクション履歴を記録（認証ユーザー情報を含む）
-    const historyQuery = `
-      INSERT INTO inventory_transactions 
-      (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date, created_by) 
-      VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
-    `;
-    
-    const historyRemarks = `入荷処理: ${remarks}${supplier ? ` (仕入先: ${supplier})` : ''} (実行者: ${req.user.username})`;
-    
-    req.db.query(historyQuery, [part_code, '入荷', quantity, currentStock, newStock, historyRemarks, req.user.user_id], (err, historyResult) => {
-      if (err) {
-        console.error('履歴記録エラー:', err.message);
-        // 履歴記録エラーは警告のみ
-        console.warn('入荷履歴の記録に失敗しましたが、入荷処理は完了しました');
-      }
-      
-      res.json({
-        success: true,
-        message: '入荷処理が完了しました',
-        data: {
-          part_code,
-          receipt_quantity: quantity,
-          old_stock: currentStock,
-          new_stock: newStock,
-          supplier,
-          processed_by: req.user.username
-        }
-      });
-    });
-  });
-}
-
-/**
- * 出庫処理API
- * POST /api/inventory/:part_code/issue
- * 権限: admin + material_staff（資材管理権限）
- * Body: { quantity: number, purpose?: string, remarks?: string }
- */
-router.post('/:part_code/issue', authenticateToken, requireMaterialAccess, (req, res) => {
-  const { part_code } = req.params;
-  const { quantity, purpose = '生産投入', remarks = '' } = req.body;
-  
-  // バリデーション
-  if (typeof quantity !== 'number' || quantity <= 0) {
-    return res.status(400).json({
-      success: false,
-      message: '出庫数量は1以上の数値で入力してください'
-    });
-  }
-  
-  // 現在の在庫情報を取得
-  const getCurrentQuery = 'SELECT current_stock, reserved_stock FROM inventory WHERE part_code = ?';
-  
-  req.db.query(getCurrentQuery, [part_code], (err, inventoryResults) => {
-    if (err) {
-      console.error('在庫情報取得エラー:', err.message);
-      res.status(500).json({
-        success: false,
-        message: '在庫情報の取得に失敗しました',
-        error: err.message
-      });
-      return;
-    }
-    
-    if (inventoryResults.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: '指定された部品の在庫情報が見つかりません'
-      });
-    }
-    
-    const currentStock = inventoryResults[0].current_stock;
-    const reservedStock = inventoryResults[0].reserved_stock;
-    const availableStock = currentStock - reservedStock;
-    
-    // 在庫不足チェック
-    if (quantity > availableStock) {
-      return res.status(400).json({
-        success: false,
-        message: `利用可能在庫が不足しています（利用可能: ${availableStock}、要求: ${quantity}）`
-      });
-    }
-    
-    const newStock = currentStock - quantity;
-    
-    // 在庫数量を更新
-    const updateQuery = 'UPDATE inventory SET current_stock = ?, updated_at = NOW() WHERE part_code = ?';
-    
-    req.db.query(updateQuery, [newStock, part_code], (err, updateResult) => {
-      if (err) {
-        console.error('在庫更新エラー:', err.message);
-        res.status(500).json({
-          success: false,
-          message: '在庫更新に失敗しました',
-          error: err.message
-        });
-        return;
-      }
-      
-      // 在庫トランザクション履歴を記録（認証ユーザー情報を含む）
-      const historyQuery = `
-        INSERT INTO inventory_transactions 
-        (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date, created_by) 
-        VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)
-      `;
-      
-      const historyRemarks = `${purpose}: ${remarks} (実行者: ${req.user.username})`;
-      
-      req.db.query(historyQuery, [part_code, '出庫', -quantity, currentStock, newStock, historyRemarks, req.user.user_id], (err, historyResult) => {
-        if (err) {
-          console.error('履歴記録エラー:', err.message);
-          // 履歴記録エラーは警告のみ
-          console.warn('出庫履歴の記録に失敗しましたが、出庫処理は完了しました');
         }
         
+        console.log(`✅ 在庫詳細取得完了: ${part_code} (在庫: ${results[0].current_stock})`);
+        
         res.json({
-          success: true,
-          message: '出庫処理が完了しました',
-          data: {
-            part_code,
-            issue_quantity: quantity,
-            old_stock: currentStock,
-            new_stock: newStock,
-            available_stock: availableStock - quantity,
-            purpose,
-            processed_by: req.user.username
-          }
+            success: true,
+            data: results[0],
+            message: `部品 ${part_code} の在庫詳細を取得しました`
         });
-      });
-    });
-  });
+
+    } catch (error) {
+        console.error('❌ 在庫詳細取得エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '在庫詳細の取得中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        if (connection) await connection.end();
+    }
 });
 
-/**
- * 在庫履歴取得API
- * GET /api/inventory/:part_code/history
- * 権限: 全認証ユーザー（参照権限）
- */
-router.get('/:part_code/history', authenticateToken, requireReadAccess, (req, res) => {
-  const { part_code } = req.params;
-  const { limit = 50 } = req.query;
-  
-  const sql = `
-    SELECT 
-      id,
-      transaction_type,
-      quantity,
-      before_stock,
-      after_stock,
-      remarks,
-      transaction_date,
-      created_by
-    FROM inventory_transactions 
-    WHERE part_code = ? 
-    ORDER BY transaction_date DESC, id DESC
-    LIMIT ?
-  `;
-  
-  req.db.query(sql, [part_code, parseInt(limit)], (err, results) => {
-    if (err) {
-      console.error('在庫履歴取得エラー:', err.message);
-      res.status(500).json({
-        success: false,
-        message: 'サーバーエラーが発生しました',
-        error: err.message
-      });
-      return;
-    }
+// ==========================================
+// 在庫数量更新API（手動調整）
+// PUT /api/inventory/:part_code
+// 権限: admin + material_staff（資材管理権限）
+// ==========================================
+router.put('/:part_code', authenticateToken, requireMaterialAccess, async (req, res) => {
+    let connection;
     
-    res.json({
-      success: true,
-      data: results,
-      total: results.length
-    });
-  });
+    try {
+        const { part_code } = req.params;
+        const { current_stock, reason = '手動調整' } = req.body;
+        
+        // バリデーション
+        if (typeof current_stock !== 'number' || current_stock < 0) {
+            return res.status(400).json({
+                success: false,
+                message: '在庫数量は0以上の数値で入力してください',
+                error: 'INVALID_STOCK_VALUE'
+            });
+        }
+        
+        console.log(`[${new Date().toISOString()}] ✏️ 在庫更新開始: ユーザー=${req.user.username}, 部品=${part_code}, 新在庫=${current_stock}`);
+        
+        connection = await mysql.createConnection(dbConfig);
+        await connection.beginTransaction();
+        
+        // 現在の在庫情報を取得
+        const [currentResults] = await connection.execute(
+            'SELECT current_stock, reserved_stock FROM inventory WHERE part_code = ?',
+            [part_code]
+        );
+        
+        if (currentResults.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({
+                success: false,
+                message: '指定された部品が見つかりません',
+                error: 'PART_NOT_FOUND'
+            });
+        }
+        
+        const oldStock = currentResults[0].current_stock;
+        const reservedStock = currentResults[0].reserved_stock;
+        
+        // 在庫マイナス防止チェック（予約在庫考慮）
+        if (current_stock < reservedStock) {
+            await connection.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `在庫数量は予約済み在庫（${reservedStock}）以上である必要があります`,
+                error: 'INSUFFICIENT_STOCK'
+            });
+        }
+        
+        // 在庫数量を更新
+        await connection.execute(
+            'UPDATE inventory SET current_stock = ?, updated_at = NOW() WHERE part_code = ?',
+            [current_stock, part_code]
+        );
+        
+        // 在庫履歴を記録
+        const stockDifference = current_stock - oldStock;
+        const historyRemarks = `${reason} (実行者: ${req.user.username})`;
+        
+        await connection.execute(
+            `INSERT INTO inventory_transactions 
+             (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date, created_by) 
+             VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)`,
+            [part_code, '手動調整', stockDifference, oldStock, current_stock, historyRemarks, req.user.username]
+        );
+        
+        await connection.commit();
+        
+        console.log(`✅ 在庫更新完了: ${part_code} ${oldStock} → ${current_stock} by ${req.user.username}`);
+        
+        res.json({
+            success: true,
+            message: '在庫数量を更新しました',
+            data: {
+                part_code,
+                old_stock: oldStock,
+                new_stock: current_stock,
+                difference: stockDifference,
+                updated_by: req.user.username
+            }
+        });
+
+    } catch (error) {
+        if (connection) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.error('❌ ロールバックエラー:', rollbackError);
+            }
+        }
+        
+        console.error('❌ 在庫更新エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '在庫更新中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// ==========================================
+// 入荷処理API
+// POST /api/inventory/:part_code/receipt
+// 権限: admin + material_staff（資材管理権限）
+// ==========================================
+router.post('/:part_code/receipt', authenticateToken, requireMaterialAccess, async (req, res) => {
+    let connection;
+    
+    try {
+        const { part_code } = req.params;
+        const { quantity, supplier = '', remarks = '' } = req.body;
+        
+        // バリデーション
+        if (typeof quantity !== 'number' || quantity <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: '入荷数量は1以上の数値で入力してください',
+                error: 'INVALID_QUANTITY'
+            });
+        }
+        
+        console.log(`[${new Date().toISOString()}] 📥 入荷処理開始: ユーザー=${req.user.username}, 部品=${part_code}, 数量=${quantity}`);
+        
+        connection = await mysql.createConnection(dbConfig);
+        await connection.beginTransaction();
+        
+        // 部品マスタの存在確認
+        const [partResults] = await connection.execute(
+            'SELECT part_code FROM parts WHERE part_code = ? AND is_active = true',
+            [part_code]
+        );
+        
+        if (partResults.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({
+                success: false,
+                message: '指定された部品が見つかりません',
+                error: 'PART_NOT_FOUND'
+            });
+        }
+        
+        // 在庫レコードの存在確認・作成
+        const [inventoryResults] = await connection.execute(
+            'SELECT current_stock FROM inventory WHERE part_code = ?',
+            [part_code]
+        );
+        
+        let currentStock = 0;
+        
+        if (inventoryResults.length === 0) {
+            // 在庫レコードが存在しない場合は新規作成
+            await connection.execute(
+                'INSERT INTO inventory (part_code, current_stock, reserved_stock, updated_at) VALUES (?, 0, 0, NOW())',
+                [part_code]
+            );
+        } else {
+            currentStock = inventoryResults[0].current_stock;
+        }
+        
+        const newStock = currentStock + quantity;
+        
+        // 在庫数量を更新
+        await connection.execute(
+            'UPDATE inventory SET current_stock = ?, updated_at = NOW() WHERE part_code = ?',
+            [newStock, part_code]
+        );
+        
+        // 在庫トランザクション履歴を記録
+        const historyRemarks = `入荷処理: ${remarks}${supplier ? ` (仕入先: ${supplier})` : ''} (実行者: ${req.user.username})`;
+        
+        await connection.execute(
+            `INSERT INTO inventory_transactions 
+             (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date, created_by) 
+             VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)`,
+            [part_code, '入荷', quantity, currentStock, newStock, historyRemarks, req.user.username]
+        );
+        
+        await connection.commit();
+        
+        console.log(`✅ 入荷処理完了: ${part_code} ${currentStock} → ${newStock} (+${quantity}) by ${req.user.username}`);
+        
+        res.json({
+            success: true,
+            message: '入荷処理が完了しました',
+            data: {
+                part_code,
+                receipt_quantity: quantity,
+                old_stock: currentStock,
+                new_stock: newStock,
+                supplier,
+                processed_by: req.user.username
+            }
+        });
+
+    } catch (error) {
+        if (connection) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.error('❌ ロールバックエラー:', rollbackError);
+            }
+        }
+        
+        console.error('❌ 入荷処理エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '入荷処理中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// ==========================================
+// 出庫処理API
+// POST /api/inventory/:part_code/issue
+// 権限: admin + material_staff（資材管理権限）
+// ==========================================
+router.post('/:part_code/issue', authenticateToken, requireMaterialAccess, async (req, res) => {
+    let connection;
+    
+    try {
+        const { part_code } = req.params;
+        const { quantity, purpose = '生産投入', remarks = '' } = req.body;
+        
+        // バリデーション
+        if (typeof quantity !== 'number' || quantity <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: '出庫数量は1以上の数値で入力してください',
+                error: 'INVALID_QUANTITY'
+            });
+        }
+        
+        console.log(`[${new Date().toISOString()}] 📤 出庫処理開始: ユーザー=${req.user.username}, 部品=${part_code}, 数量=${quantity}`);
+        
+        connection = await mysql.createConnection(dbConfig);
+        await connection.beginTransaction();
+        
+        // 現在の在庫情報を取得
+        const [inventoryResults] = await connection.execute(
+            'SELECT current_stock, reserved_stock FROM inventory WHERE part_code = ?',
+            [part_code]
+        );
+        
+        if (inventoryResults.length === 0) {
+            await connection.rollback();
+            return res.status(404).json({
+                success: false,
+                message: '指定された部品の在庫情報が見つかりません',
+                error: 'INVENTORY_NOT_FOUND'
+            });
+        }
+        
+        const currentStock = inventoryResults[0].current_stock;
+        const reservedStock = inventoryResults[0].reserved_stock;
+        const availableStock = currentStock - reservedStock;
+        
+        // 在庫不足チェック
+        if (quantity > availableStock) {
+            await connection.rollback();
+            return res.status(400).json({
+                success: false,
+                message: `利用可能在庫が不足しています（利用可能: ${availableStock}、要求: ${quantity}）`,
+                error: 'INSUFFICIENT_AVAILABLE_STOCK'
+            });
+        }
+        
+        const newStock = currentStock - quantity;
+        
+        // 在庫数量を更新
+        await connection.execute(
+            'UPDATE inventory SET current_stock = ?, updated_at = NOW() WHERE part_code = ?',
+            [newStock, part_code]
+        );
+        
+        // 在庫トランザクション履歴を記録
+        const historyRemarks = `${purpose}: ${remarks} (実行者: ${req.user.username})`;
+        
+        await connection.execute(
+            `INSERT INTO inventory_transactions 
+             (part_code, transaction_type, quantity, before_stock, after_stock, remarks, transaction_date, created_by) 
+             VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)`,
+            [part_code, '出庫', -quantity, currentStock, newStock, historyRemarks, req.user.username]
+        );
+        
+        await connection.commit();
+        
+        console.log(`✅ 出庫処理完了: ${part_code} ${currentStock} → ${newStock} (-${quantity}) by ${req.user.username}`);
+        
+        res.json({
+            success: true,
+            message: '出庫処理が完了しました',
+            data: {
+                part_code,
+                issue_quantity: quantity,
+                old_stock: currentStock,
+                new_stock: newStock,
+                available_stock: availableStock - quantity,
+                purpose,
+                processed_by: req.user.username
+            }
+        });
+
+    } catch (error) {
+        if (connection) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.error('❌ ロールバックエラー:', rollbackError);
+            }
+        }
+        
+        console.error('❌ 出庫処理エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '出庫処理中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// ==========================================
+// 在庫履歴取得API
+// GET /api/inventory/:part_code/history
+// 権限: 全認証ユーザー（参照権限）
+// ==========================================
+router.get('/:part_code/history', authenticateToken, requireReadAccess, async (req, res) => {
+    let connection;
+    
+    try {
+        const { part_code } = req.params;
+        const { limit = '50' } = req.query;
+        
+        console.log(`[${new Date().toISOString()}] 📚 在庫履歴取得開始: ユーザー=${req.user.username}, 部品=${part_code}`);
+        
+        connection = await mysql.createConnection(dbConfig);
+        
+        // LIMIT句は動的パラメータを避けて直接埋め込み
+        const limitNum = parseInt(limit) || 50;
+        const safeLimitNum = limitNum > 0 && limitNum <= 500 ? limitNum : 50;
+        
+        const sql = `
+            SELECT 
+                id,
+                transaction_type,
+                quantity,
+                before_stock,
+                after_stock,
+                remarks,
+                transaction_date,
+                created_by
+            FROM inventory_transactions 
+            WHERE part_code = ? 
+            ORDER BY transaction_date DESC, id DESC
+            LIMIT ${safeLimitNum}
+        `;
+        
+        const [results] = await connection.execute(sql, [part_code]);
+        
+        console.log(`✅ 在庫履歴取得完了: ${part_code} ${results.length}件`);
+        
+        res.json({
+            success: true,
+            data: results,
+            total: results.length,
+            part_code: part_code,
+            limit: safeLimitNum,
+            message: `部品 ${part_code} の在庫履歴を${results.length}件取得しました`
+        });
+
+    } catch (error) {
+        console.error('❌ 在庫履歴取得エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '在庫履歴の取得中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        if (connection) await connection.end();
+    }
 });
 
 module.exports = router;
