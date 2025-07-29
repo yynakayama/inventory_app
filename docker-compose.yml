@@ -44,7 +44,7 @@ services:
       - UPLOAD_LIMIT=1G
     restart: unless-stopped
 
-  # Node.js + Express APIサーバー
+  # Node.js + Express APIサーバー（バックエンド）
   app:
     build: .
     container_name: inventory-app
@@ -63,6 +63,26 @@ services:
     volumes:
       - .:/app
       - /app/node_modules
+    working_dir: /app
+    restart: unless-stopped
+
+  # Next.js フロントエンドサーバー
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: inventory-frontend
+    ports:
+      - "3001:3001"
+    depends_on:
+      - app
+    environment:
+      - NODE_ENV=development
+      - NEXT_PUBLIC_API_URL=http://localhost:3000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
     working_dir: /app
     restart: unless-stopped
 

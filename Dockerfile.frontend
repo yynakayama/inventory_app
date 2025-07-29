@@ -1,0 +1,25 @@
+# Frontend用Dockerfile
+FROM node:22.15.1-slim
+
+# 必要なパッケージをインストール
+RUN apt-get update && apt-get install -y \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# 作業ディレクトリを設定
+WORKDIR /app
+
+# package.json と package-lock.json をコピー
+COPY frontend/package*.json ./
+
+# 依存関係をインストール
+RUN npm install
+
+# アプリケーションのソースをコピー
+COPY frontend/ .
+
+# ポート3001を公開（バックエンドの3000と区別）
+EXPOSE 3001
+
+# 開発サーバーを起動
+CMD ["npm", "run", "dev"]
