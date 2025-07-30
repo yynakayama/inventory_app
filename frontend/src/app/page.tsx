@@ -20,7 +20,7 @@ export default function HomePage() {
 
       {/* サマリーカード群 */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {/* 総在庫点数 */}
+        {/* 管理部品種類数 */}
         <div className="card-base">
           <div className="flex items-center">
             <div className="flex-shrink-0">
@@ -29,8 +29,8 @@ export default function HomePage() {
               </div>
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-600">総在庫点数</p>
-              <p className="text-2xl font-bold text-gray-900">1,234</p>
+              <p className="text-sm font-medium text-gray-600">管理部品種類</p>
+              <p className="text-2xl font-bold text-gray-900">89</p>
             </div>
           </div>
         </div>
@@ -45,7 +45,7 @@ export default function HomePage() {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">在庫不足</p>
-              <p className="text-2xl font-bold text-yellow-600">23</p>
+              <p className="text-2xl font-bold text-yellow-600">12</p>
             </div>
           </div>
         </div>
@@ -60,7 +60,7 @@ export default function HomePage() {
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-600">今日の入荷予定</p>
-              <p className="text-2xl font-bold text-green-600">8</p>
+              <p className="text-2xl font-bold text-green-600">5</p>
             </div>
           </div>
         </div>
@@ -113,7 +113,7 @@ export default function HomePage() {
             <p className="text-gray-600 text-sm mb-4">
               生産計画の作成・BOM管理
             </p>
-            <button className="btn-success w-full">
+            <button className="btn-primary w-full">
               生産計画へ
             </button>
           </div>
@@ -131,7 +131,7 @@ export default function HomePage() {
             <p className="text-gray-600 text-sm mb-4">
               在庫分析・履歴・統計情報
             </p>
-            <button className="btn-warning w-full">
+            <button className="btn-primary w-full">
               レポートへ
             </button>
           </div>
@@ -149,7 +149,7 @@ export default function HomePage() {
             <div className="w-2 h-2 bg-green-500 rounded-full"></div>
             <div className="flex-1">
               <p className="text-sm text-gray-900">
-                部品A001の入荷処理が完了しました（数量: 100）
+                SUS304-M6-25-HEXの入荷処理が完了しました（数量: 50個）
               </p>
               <p className="text-xs text-gray-500">2025年7月30日 10:30</p>
             </div>
@@ -160,7 +160,7 @@ export default function HomePage() {
             <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
             <div className="flex-1">
               <p className="text-sm text-gray-900">
-                部品B002の在庫が安全在庫を下回りました
+                SUS304-M6-NUTの在庫が安全在庫（20個）を下回りました
               </p>
               <p className="text-xs text-gray-500">2025年7月30日 09:15</p>
             </div>
@@ -171,7 +171,7 @@ export default function HomePage() {
             <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
             <div className="flex-1">
               <p className="text-sm text-gray-900">
-                新しい生産計画P2025-007が作成されました（在庫予約完了）
+                製品V5000の生産計画が作成されました（在庫予約完了）
               </p>
               <p className="text-xs text-gray-500">2025年7月30日 08:45</p>
             </div>
