@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans;
+  }
+  
+  html {
+    @apply antialiased;
+  }
+}
+
+@layer components {
+  /* カード型コンポーネントの基本スタイル */
+  .card-base {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 p-6;
+  }
+  
+  /* プライマリボタンのスタイル */
+  .btn-primary {
+    @apply px-4 py-2 rounded-md font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors duration-200;
+  }
+  
+  /* セカンダリボタンのスタイル */
+  .btn-secondary {
+    @apply px-4 py-2 rounded-md font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-300 transition-colors duration-200;
+  }
+  
+  /* 入力フィールドの基本スタイル */
+  .input-base {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+  }
+  
+  /* テーブルの基本スタイル */
+  .table-base {
+    @apply w-full border-collapse bg-white shadow-sm rounded-lg overflow-hidden;
+  }
+  
+  .table-header {
+    @apply bg-gray-50 border-b border-gray-200;
+  }
+  
+  .table-cell {
+    @apply px-6 py-4 text-sm text-gray-900 border-b border-gray-100;
+  }
+}
