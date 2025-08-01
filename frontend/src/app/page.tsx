@@ -1,13 +1,13 @@
 'use client'
 
 import { useAuth, usePermissions } from '@/providers/AuthProvider'
-import RouteGuard from '@/components/RouteGuard'
+import RouteGuard from '@/components/guards/RouteGuard'
 import PermissionGuard, { 
   AdminOnly, 
   ProductionManagerOnly, 
   MaterialStaffOnly,
   usePermissionCheck 
-} from '@/components/PermissionGuard'
+} from '@/components/guards/PermissionGuard'
 
 function DashboardContent() {
   const { user, logout } = useAuth()
