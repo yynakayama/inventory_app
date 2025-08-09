@@ -14,6 +14,10 @@ const nextConfig = {
         },
       },
     },
+    // 高速リフレッシュの最適化
+    optimizePackageImports: ['react', 'react-dom'],
+    // メモリ使用量の最適化
+    memoryBasedWorkers: true,
   },
 
   // 画像最適化設定
@@ -77,6 +81,18 @@ const nextConfig = {
     // ESLintエラーでもビルドを継続（開発時のみ推奨）
     ignoreDuringBuilds: false,
   },
+
+  // 開発時の最適化設定
+  swcMinify: true,
+  
+  // コンパイラ設定
+  compiler: {
+    // 不要なconsole.logを削除
+    removeConsole: process.env.NODE_ENV === 'production',
+  },
+
+  // ページ最適化
+  pageExtensions: ['tsx', 'ts', 'jsx', 'js'],
 };
 
 export default nextConfig;

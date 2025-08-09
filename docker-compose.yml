@@ -79,12 +79,27 @@ services:
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_API_URL=http://localhost:3000
+      # 起動速度向上のための環境変数
+      - NEXT_TELEMETRY_DISABLED=1
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+      - FAST_REFRESH=true
     volumes:
       - ./frontend:/app
       - /app/node_modules
       - /app/.next
+      # キャッシュボリュームを追加
+      - next_cache:/app/.next/cache
     working_dir: /app
     restart: unless-stopped
+    # ヘルスチェックを追加
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   mysql_data:
+  next_cache:

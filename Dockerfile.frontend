@@ -3,6 +3,7 @@ FROM node:22.15.1-slim
 
 # 必要なパッケージをインストール
 RUN apt-get update && apt-get install -y \
+    curl \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
@@ -12,8 +13,11 @@ WORKDIR /app
 # package.json と package-lock.json をコピー
 COPY frontend/package*.json ./
 
-# 依存関係をインストール
-RUN npm install
+# 依存関係をインストール（キャッシュ最適化）
+RUN npm ci --only=production && npm cache clean --force
+
+# 開発依存関係をインストール
+RUN npm install --only=dev
 
 # アプリケーションのソースをコピー
 COPY frontend/ .
@@ -21,5 +25,5 @@ COPY frontend/ .
 # ポート3001を公開（バックエンドの3000と区別）
 EXPOSE 3001
 
-# 開発サーバーを起動
+# 開発サーバーを起動（最適化オプション付き）
 CMD ["npm", "run", "dev"]
