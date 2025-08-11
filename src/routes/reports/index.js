@@ -82,21 +82,36 @@ router.get('/dashboard', authenticateToken, requireReadAccess, async (req, res) 
             WHERE status IN ('納期回答待ち', '入荷予定')
         `;
 
-        // 3. 仕入先の概要
+        // 3. 仕入先の概要（NULL仕入先もカウント版）
         const supplierQuery = `
+            WITH supplier_status AS (
+                SELECT 
+                    COALESCE(p.supplier, '仕入先未設定') as supplier_name,
+                    p.supplier,
+                    -- 仕入先ごとの不足部品状況
+                    SUM(CASE WHEN isc.shortage_quantity > 0 THEN 1 ELSE 0 END) as shortage_parts_count,
+                    -- 仕入先ごとの遅延入荷状況
+                    SUM(CASE 
+                        WHEN sr.status = '入荷予定' AND sr.scheduled_date < CURDATE() 
+                        THEN 1 ELSE 0 
+                    END) as delayed_receipts_count
+                FROM parts p
+                LEFT JOIN inventory_sufficiency_check isc ON p.part_code = isc.part_code
+                LEFT JOIN scheduled_receipts sr ON p.part_code = sr.part_code
+                WHERE p.is_active = TRUE
+                GROUP BY COALESCE(p.supplier, '仕入先未設定'), p.supplier
+            )
             SELECT 
-                COUNT(DISTINCT p.supplier) as total_suppliers,
-                COUNT(DISTINCT CASE 
-                    WHEN isc.shortage_quantity > 0 THEN p.supplier 
-                END) as suppliers_with_shortages,
-                COUNT(DISTINCT CASE 
-                    WHEN sr.status = '入荷予定' 
-                         AND sr.scheduled_date < CURDATE() THEN p.supplier 
-                END) as suppliers_with_delays
-            FROM parts p
-            LEFT JOIN inventory_sufficiency_check isc ON p.part_code = isc.part_code
-            LEFT JOIN scheduled_receipts sr ON p.part_code = sr.part_code
-            WHERE p.is_active = TRUE
+                COUNT(*) as total_suppliers,
+                COUNT(CASE WHEN shortage_parts_count > 0 THEN 1 END) as suppliers_with_shortages,
+                COUNT(CASE WHEN delayed_receipts_count > 0 THEN 1 END) as suppliers_with_delays,
+                COUNT(CASE 
+                    WHEN shortage_parts_count = 0 AND delayed_receipts_count = 0 
+                    THEN 1 
+                END) as suppliers_normal,
+                -- データ品質情報も追加
+                COUNT(CASE WHEN supplier IS NULL THEN 1 END) as suppliers_without_name
+            FROM supplier_status
         `;
 
         // 4. 棚おろし概要（追加）
@@ -151,7 +166,9 @@ router.get('/dashboard', authenticateToken, requireReadAccess, async (req, res) 
                 suppliers: {
                     total: parseInt(supplierData.total_suppliers) || 0,
                     with_shortages: parseInt(supplierData.suppliers_with_shortages) || 0,
-                    with_delays: parseInt(supplierData.suppliers_with_delays) || 0
+                    with_delays: parseInt(supplierData.suppliers_with_delays) || 0,
+                    normal: parseInt(supplierData.suppliers_normal) || 0,
+                    without_name: parseInt(supplierData.suppliers_without_name) || 0
                 },
                 stocktaking: {
                     total_records: parseInt(stocktakingData.total_stocktaking_records) || 0,
