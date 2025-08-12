@@ -47,17 +47,17 @@ router.get('/dashboard', authenticateToken, requireReadAccess, async (req, res) 
         
         connection = await mysql.createConnection(dbConfig);
 
-        // 1. 不足部品の概要
+        // 1. 不足部品の概要（重複除去済み）
         const shortageQuery = `
             SELECT 
-                COUNT(*) as total_shortage_parts,
-                COUNT(CASE 
+                COUNT(DISTINCT isc.part_code) as total_shortage_parts,
+                COUNT(DISTINCT CASE 
                     WHEN isc.procurement_due_date < CURDATE() 
-                         AND DATEDIFF(CURDATE(), isc.procurement_due_date) >= 7 THEN 1 
+                         AND DATEDIFF(CURDATE(), isc.procurement_due_date) >= 7 THEN isc.part_code 
                 END) as emergency_parts,
-                COUNT(CASE 
+                COUNT(DISTINCT CASE 
                     WHEN isc.procurement_due_date < CURDATE() 
-                         AND DATEDIFF(CURDATE(), isc.procurement_due_date) >= 1 THEN 1 
+                         AND DATEDIFF(CURDATE(), isc.procurement_due_date) >= 1 THEN isc.part_code 
                 END) as warning_parts,
                 ROUND(SUM(isc.shortage_quantity * COALESCE(p.unit_price, 0)), 2) as total_shortage_cost
             FROM inventory_sufficiency_check isc
@@ -82,19 +82,19 @@ router.get('/dashboard', authenticateToken, requireReadAccess, async (req, res) 
             WHERE status IN ('納期回答待ち', '入荷予定')
         `;
 
-        // 3. 仕入先の概要（NULL仕入先もカウント版）
+        // 3. 仕入先の概要（重複除去済み・NULL仕入先もカウント版）
         const supplierQuery = `
             WITH supplier_status AS (
                 SELECT 
                     COALESCE(p.supplier, '仕入先未設定') as supplier_name,
                     p.supplier,
-                    -- 仕入先ごとの不足部品状況
-                    SUM(CASE WHEN isc.shortage_quantity > 0 THEN 1 ELSE 0 END) as shortage_parts_count,
-                    -- 仕入先ごとの遅延入荷状況
-                    SUM(CASE 
+                    -- 仕入先ごとの不足部品状況（重複除去済み）
+                    COUNT(DISTINCT CASE WHEN isc.shortage_quantity > 0 THEN isc.part_code END) as shortage_parts_count,
+                    -- 仕入先ごとの遅延入荷状況（重複除去済み）
+                    COUNT(DISTINCT CASE 
                         WHEN sr.status = '入荷予定' AND sr.scheduled_date < CURDATE() 
-                        THEN 1 ELSE 0 
-                    END) as delayed_receipts_count
+                        THEN sr.part_code END
+                    ) as delayed_receipts_count
                 FROM parts p
                 LEFT JOIN inventory_sufficiency_check isc ON p.part_code = isc.part_code
                 LEFT JOIN scheduled_receipts sr ON p.part_code = sr.part_code
