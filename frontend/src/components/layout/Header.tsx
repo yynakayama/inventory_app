@@ -22,54 +22,47 @@ export function Header() {
   }
 
   const navigationItems = [
-    {
-      label: 'ダッシュボード',
-      href: '/dashboard',
-      permissions: ['dashboard.view']
-    },
-    {
-      label: '在庫管理',
-      href: '/inventory',
-      permissions: ['inventory.view'],
-      children: [
-        { label: '在庫一覧', href: '/inventory/list', permissions: ['inventory.view'] },
-        { label: '取引履歴', href: '/inventory/transactions', permissions: ['inventory.view'] }
-      ]
-    },
-    {
-      label: '生産計画',
-      href: '/production',
-      permissions: ['production.view'],
-      children: [
-        { label: '計画一覧', href: '/production/plans', permissions: ['production.view'] },
-        { label: '計画作成', href: '/production/create', permissions: ['production.create'] }
-      ]
-    },
-    {
-      label: '調達管理',
-      href: '/procurement',
-      permissions: ['procurement.view'],
-      children: [
-        { label: '予定入荷', href: '/procurement/scheduled', permissions: ['procurement.view'] },
-        { label: '発注登録', href: '/procurement/orders', permissions: ['procurement.create'] }
-      ]
-    },
-    {
-      label: 'マスタ管理',
-      href: '/masters',
-      permissions: ['masters.view'],
-      children: [
-        { label: '部品マスタ', href: '/masters/parts', permissions: ['masters.view'] },
-        { label: '製品マスタ', href: '/masters/products', permissions: ['masters.view'] },
-        { label: 'BOM管理', href: '/masters/bom', permissions: ['masters.view'] }
-      ]
-    },
-    {
-      label: 'レポート',
-      href: '/reports',
-      permissions: ['reports.view']
-    }
-  ]
+  {
+    label: 'ダッシュボード',
+    href: '/dashboard',
+    permissions: ['dashboard.view']
+  },
+  {
+    label: '在庫管理',
+    href: '/inventory',
+    permissions: ['inventory.view'],
+    children: [
+      { label: '在庫一覧', href: '/inventory/list', permissions: ['inventory.view'] },
+      { label: '取引履歴', href: '/inventory/transactions', permissions: ['inventory.view'] }
+    ]
+  },
+  {
+    label: '生産計画',
+    href: '/production/plans',  // 直接リンク
+    permissions: ['production.view']
+  },
+  {
+    label: '調達管理',
+    href: '/procurement/scheduled',  // 直接リンク
+    permissions: ['procurement.view']
+  },
+  {
+    label: 'マスタ管理',
+    href: '/masters',
+    permissions: ['masters.view'],
+    children: [
+      { label: '部品マスタ', href: '/masters/parts', permissions: ['masters.view'] },
+      { label: '製品マスタ', href: '/masters/products', permissions: ['masters.view'] },
+      { label: 'BOM管理', href: '/masters/bom', permissions: ['masters.view'] },
+      { label: 'ユーザー管理', href: '/masters/users', permissions: ['masters.view'] },
+    ]
+  },
+  {
+    label: 'レポート',
+    href: '/reports',
+    permissions: ['reports.view']
+  }
+]
 
   return (
     <header className="bg-white shadow-sm border-b border-gray-200">

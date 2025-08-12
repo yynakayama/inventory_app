@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
 import PermissionGuard from '@/components/guards/PermissionGuard'
 import Button from '@/components/ui/Button'
+import PartCodeSelector from '@/components/ui/PartCodeSelector'
 
 // 予定入荷データの型定義
 interface ScheduledReceipt {
@@ -57,6 +58,7 @@ function ScheduledReceiptsContent() {
   // モーダル状態
   const [showReceiptModal, setShowReceiptModal] = useState(false)
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
+  const [showOrderModal, setShowOrderModal] = useState(false)
   
   // フォーム状態
   const [receiptForm, setReceiptForm] = useState<ReceiptForm>({
@@ -68,6 +70,13 @@ function ScheduledReceiptsContent() {
   const [deliveryForm, setDeliveryForm] = useState({
     scheduledQuantity: '',
     scheduledDate: '',
+    remarks: ''
+  })
+
+  const [orderForm, setOrderForm] = useState({
+    partCode: '',
+    orderQuantity: '',
+    requestedDate: '',
     remarks: ''
   })
 
@@ -156,6 +165,61 @@ function ScheduledReceiptsContent() {
     })
     setShowReceiptModal(true)
     setError('')
+  }
+
+  // 新規発注処理
+  const handleCreateOrder = async () => {
+    const quantity = parseInt(orderForm.orderQuantity)
+    
+    if (!orderForm.partCode.trim()) {
+      setError('部品コードを入力してください')
+      return
+    }
+    
+    if (!quantity || quantity <= 0) {
+      setError('発注数量は1以上で入力してください')
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      
+      const token = localStorage.getItem('token')
+      const response = await fetch('http://localhost:3000/api/scheduled-receipts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          part_code: orderForm.partCode.trim(),
+          order_quantity: quantity,
+          requested_date: orderForm.requestedDate || null,
+          remarks: orderForm.remarks.trim() || null
+        })
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '発注登録に失敗しました')
+      }
+      
+      setShowOrderModal(false)
+      setOrderForm({
+        partCode: '',
+        orderQuantity: '',
+        requestedDate: '',
+        remarks: ''
+      })
+      await fetchScheduledReceipts()
+      
+      alert('新規発注を登録しました')
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '発注登録エラー')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   // 納期回答処理
@@ -311,8 +375,8 @@ function ScheduledReceiptsContent() {
       <div className="max-w-7xl mx-auto p-6">
         {/* ページヘッダー */}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">📋 予定入荷管理</h1>
-          <p className="text-gray-600">発注から入荷までの予定入荷を一元管理します</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">🚚 調達管理</h1>
+          <p className="text-gray-600">発注登録から入荷処理まで調達業務を一元管理します</p>
         </div>
 
         {/* エラー表示 */}
@@ -322,50 +386,64 @@ function ScheduledReceiptsContent() {
           </div>
         )}
 
-        {/* フィルター */}
+        {/* フィルター・操作バー */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
           <div className="px-6 py-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              {/* 新規発注ボタン */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">ステータス</label>
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">全て</option>
-                  <option value="納期回答待ち">納期回答待ち</option>
-                  <option value="入荷予定">入荷予定</option>
-                  <option value="入荷済み">入荷済み</option>
-                  <option value="キャンセル">キャンセル</option>
-                </select>
+                <PermissionGuard requiredPermissions={['procurement.create']}>
+                  <Button
+                    onClick={() => setShowOrderModal(true)}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    📝 新規発注
+                  </Button>
+                </PermissionGuard>
               </div>
               
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">部品コード</label>
-                <input
-                  type="text"
-                  value={partCodeFilter}
-                  onChange={(e) => setPartCodeFilter(e.target.value)}
-                  placeholder="部品コードで検索"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              
-              <div className="flex items-end">
-                <Button onClick={fetchScheduledReceipts} disabled={isLoading}>
-                  {isLoading ? '検索中...' : '検索'}
-                </Button>
+              {/* フィルター */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 lg:max-w-2xl">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">ステータス</label>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">全て</option>
+                    <option value="納期回答待ち">納期回答待ち</option>
+                    <option value="入荷予定">入荷予定</option>
+                    <option value="入荷済み">入荷済み</option>
+                    <option value="キャンセル">キャンセル</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">部品コード</label>
+                  <PartCodeSelector
+                    value={partCodeFilter}
+                    onChange={setPartCodeFilter}
+                    placeholder="部品コードで検索"
+                    disabled={isLoading}
+                  />
+                </div>
+                
+                <div className="flex items-end">
+                  <Button onClick={fetchScheduledReceipts} disabled={isLoading}>
+                    {isLoading ? '検索中...' : '検索'}
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 予定入荷一覧テーブル */}
+        {/* 調達管理テーブル */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
           <div className="px-6 py-4 border-b border-gray-200">
             <h2 className="text-lg font-semibold text-gray-900">
-              予定入荷一覧 ({filteredReceipts.length}件)
+              調達一覧 ({filteredReceipts.length}件)
             </h2>
           </div>
           
@@ -377,7 +455,15 @@ function ScheduledReceiptsContent() {
               </div>
             ) : filteredReceipts.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-600">該当する予定入荷がありません</p>
+                <p className="text-gray-600">該当する調達情報がありません</p>
+                <PermissionGuard requiredPermissions={['procurement.create']}>
+                  <Button
+                    onClick={() => setShowOrderModal(true)}
+                    className="mt-4 bg-blue-600 hover:bg-blue-700"
+                  >
+                    📝 新規発注を登録
+                  </Button>
+                </PermissionGuard>
               </div>
             ) : (
               <table className="min-w-full">
@@ -469,6 +555,89 @@ function ScheduledReceiptsContent() {
             )}
           </div>
         </div>
+
+        {/* 新規発注モーダル */}
+        {showOrderModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg max-w-md w-full mx-4">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">📝 新規発注登録</h3>
+                <p className="text-sm text-gray-600 mt-1">新しい発注を登録します</p>
+              </div>
+              
+              <div className="px-6 py-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    部品コード <span className="text-red-500">*</span>
+                  </label>
+                  <PartCodeSelector
+                    value={orderForm.partCode}
+                    onChange={(value) => setOrderForm(prev => ({ ...prev, partCode: value }))}
+                    placeholder="部材コードを入力して候補から選択..."
+                    disabled={isLoading}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">部材コードを入力すると候補が表示されます</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    発注数量 <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex">
+                    <input
+                      type="number"
+                      value={orderForm.orderQuantity}
+                      onChange={(e) => setOrderForm(prev => ({ ...prev, orderQuantity: e.target.value }))}
+                      min="1"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="100"
+                    />
+                    <span className="px-3 py-2 bg-gray-50 border border-l-0 border-gray-300 rounded-r-md text-gray-600">個</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">要求納期</label>
+                  <input
+                    type="date"
+                    value={orderForm.requestedDate}
+                    onChange={(e) => setOrderForm(prev => ({ ...prev, requestedDate: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">希望する納期があれば入力してください</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">備考</label>
+                  <textarea
+                    value={orderForm.remarks}
+                    onChange={(e) => setOrderForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="発注に関する備考があれば入力してください"
+                  />
+                </div>
+              </div>
+              
+              <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+                <Button
+                  onClick={handleCreateOrder}
+                  disabled={isLoading || !orderForm.partCode.trim() || !orderForm.orderQuantity}
+                  className="flex-1"
+                >
+                  {isLoading ? '登録中...' : '発注登録'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowOrderModal(false)}
+                  disabled={isLoading}
+                >
+                  キャンセル
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 納期回答モーダル */}
         {showDeliveryModal && selectedReceipt && (
