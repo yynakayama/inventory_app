@@ -33,7 +33,6 @@ export function Header() {
       permissions: ['inventory.view'],
       children: [
         { label: '在庫一覧', href: '/inventory/list', permissions: ['inventory.view'] },
-        { label: '統合入荷処理', href: '/inventory/receipt', permissions: ['inventory.create'] },
         { label: '取引履歴', href: '/inventory/transactions', permissions: ['inventory.view'] }
       ]
     },

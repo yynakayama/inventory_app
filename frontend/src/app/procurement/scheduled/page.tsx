@@ -1,0 +1,642 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import RouteGuard from '@/components/guards/RouteGuard'
+import PermissionGuard from '@/components/guards/PermissionGuard'
+import Button from '@/components/ui/Button'
+
+// 予定入荷データの型定義
+interface ScheduledReceipt {
+  id: number
+  order_no: string
+  part_code: string
+  specification: string
+  supplier: string
+  order_quantity: number
+  scheduled_quantity: number | null
+  order_date: string
+  requested_date: string | null
+  scheduled_date: string | null
+  status: '納期回答待ち' | '入荷予定' | '入荷済み' | 'キャンセル'
+  remarks: string | null
+  current_stock: number
+  reserved_stock: number
+}
+
+// 入荷処理フォームの型定義
+interface ReceiptForm {
+  actualQuantity: string
+  receiptDate: string
+  remarks: string
+}
+
+export default function ScheduledReceiptsPage() {
+  return (
+    <RouteGuard>
+      <PermissionGuard requiredPermissions={['procurement.view']}>
+        <ScheduledReceiptsContent />
+      </PermissionGuard>
+    </RouteGuard>
+  )
+}
+
+function ScheduledReceiptsContent() {
+  const router = useRouter()
+  
+  // 状態管理
+  const [scheduledReceipts, setScheduledReceipts] = useState<ScheduledReceipt[]>([])
+  const [selectedReceipt, setSelectedReceipt] = useState<ScheduledReceipt | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
+  
+  // フィルタリング状態
+  const [statusFilter, setStatusFilter] = useState('')
+  const [partCodeFilter, setPartCodeFilter] = useState('')
+  
+  // モーダル状態
+  const [showReceiptModal, setShowReceiptModal] = useState(false)
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false)
+  
+  // フォーム状態
+  const [receiptForm, setReceiptForm] = useState<ReceiptForm>({
+    actualQuantity: '',
+    receiptDate: '',
+    remarks: ''
+  })
+  
+  const [deliveryForm, setDeliveryForm] = useState({
+    scheduledQuantity: '',
+    scheduledDate: '',
+    remarks: ''
+  })
+
+  // 初期化
+  useEffect(() => {
+    const today = new Date().toISOString().split('T')[0]
+    setReceiptForm(prev => ({ ...prev, receiptDate: today }))
+    fetchScheduledReceipts()
+  }, [])
+
+  // 予定入荷一覧を取得
+  const fetchScheduledReceipts = async () => {
+    try {
+      setIsLoading(true)
+      setError('')
+      
+      const token = localStorage.getItem('token')
+      let url = 'http://localhost:3000/api/scheduled-receipts'
+      
+      // フィルター条件を追加
+      const params = new URLSearchParams()
+      if (statusFilter) params.append('status', statusFilter)
+      if (partCodeFilter) params.append('part_code', partCodeFilter)
+      
+      if (params.toString()) {
+        url += '?' + params.toString()
+      }
+      
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      
+      if (!response.ok) {
+        throw new Error('予定入荷一覧の取得に失敗しました')
+      }
+      
+      const result = await response.json()
+      console.log('API Response:', result) // デバッグ用
+      
+      // APIレスポンス構造に対応
+      if (result.success && Array.isArray(result.data)) {
+        setScheduledReceipts(result.data)
+      } else {
+        console.error('Unexpected API response:', result)
+        setScheduledReceipts([])
+        setError('データの取得に失敗しました')
+      }
+    } catch (err) {
+      console.error('fetchScheduledReceipts error:', err)
+      setError(err instanceof Error ? err.message : '予定入荷一覧の取得エラー')
+      setScheduledReceipts([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 納期回答モーダルを開く
+  const openDeliveryModal = (receipt: ScheduledReceipt) => {
+    if (receipt.status !== '納期回答待ち') {
+      setError('納期回答待ちの状態のみ納期設定できます')
+      return
+    }
+    
+    setSelectedReceipt(receipt)
+    setDeliveryForm({
+      scheduledQuantity: receipt.order_quantity.toString(),
+      scheduledDate: '',
+      remarks: ''
+    })
+    setShowDeliveryModal(true)
+    setError('')
+  }
+
+  // 入荷処理モーダルを開く
+  const openReceiptModal = (receipt: ScheduledReceipt) => {
+    if (receipt.status !== '入荷予定') {
+      setError('入荷予定の状態のみ入荷処理できます')
+      return
+    }
+    
+    setSelectedReceipt(receipt)
+    setReceiptForm({
+      actualQuantity: (receipt.scheduled_quantity || receipt.order_quantity).toString(),
+      receiptDate: new Date().toISOString().split('T')[0],
+      remarks: ''
+    })
+    setShowReceiptModal(true)
+    setError('')
+  }
+
+  // 納期回答処理
+  const handleDeliveryResponse = async () => {
+    if (!selectedReceipt) return
+    
+    const quantity = parseInt(deliveryForm.scheduledQuantity)
+    
+    if (!quantity || quantity <= 0) {
+      setError('予定入荷数量は1以上で入力してください')
+      return
+    }
+    
+    if (!deliveryForm.scheduledDate) {
+      setError('予定入荷日を入力してください')
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      
+      const token = localStorage.getItem('token')
+      const response = await fetch(`http://localhost:3000/api/scheduled-receipts/${selectedReceipt.id}/delivery-response`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          scheduled_quantity: quantity,
+          scheduled_date: deliveryForm.scheduledDate,
+          remarks: deliveryForm.remarks
+        })
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '納期回答の登録に失敗しました')
+      }
+      
+      setShowDeliveryModal(false)
+      setSelectedReceipt(null)
+      await fetchScheduledReceipts()
+      
+      alert('納期回答を登録しました')
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '納期回答登録エラー')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // 入荷処理実行
+  const handleReceiptProcess = async () => {
+    if (!selectedReceipt) return
+    
+    const quantity = parseInt(receiptForm.actualQuantity)
+    
+    if (!quantity || quantity <= 0) {
+      setError('入荷数量は1以上で入力してください')
+      return
+    }
+    
+    if (!receiptForm.receiptDate) {
+      setError('入荷日を入力してください')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `以下の内容で入荷処理を実行しますか？\n\n` +
+      `部品コード: ${selectedReceipt.part_code}\n` +
+      `予定数量: ${selectedReceipt.scheduled_quantity}個\n` +
+      `実際数量: ${quantity}個\n` +
+      `入荷日: ${receiptForm.receiptDate}\n` +
+      `\n※この処理は取り消しできません。`
+    )
+
+    if (!confirmed) return
+
+    try {
+      setIsLoading(true)
+      
+      const token = localStorage.getItem('token')
+      
+      // 統合入荷処理APIを呼び出し
+      const response = await fetch(`http://localhost:3000/api/inventory/${selectedReceipt.part_code}/integrated-receipt`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          quantity,
+          supplier: selectedReceipt.supplier,
+          receipt_date: receiptForm.receiptDate,
+          remarks: receiptForm.remarks,
+          scheduled_receipt_id: selectedReceipt.id
+        })
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '入荷処理に失敗しました')
+      }
+      
+      const result = await response.json()
+      
+      setShowReceiptModal(false)
+      setSelectedReceipt(null)
+      await fetchScheduledReceipts()
+      
+      alert(
+        `入荷処理が完了しました！\n\n` +
+        `部品コード: ${result.part_code}\n` +
+        `処理前在庫: ${result.old_stock}個\n` +
+        `処理後在庫: ${result.new_stock}個\n` +
+        `入荷数量: ${result.receipt_quantity}個`
+      )
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '入荷処理エラー')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // ステータス表示用のスタイル
+  const getStatusStyle = (status: string) => {
+    switch (status) {
+      case '納期回答待ち':
+        return 'bg-orange-100 text-orange-800'
+      case '入荷予定':
+        return 'bg-blue-100 text-blue-800'
+      case '入荷済み':
+        return 'bg-green-100 text-green-800'
+      case 'キャンセル':
+        return 'bg-gray-100 text-gray-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  // フィルタリングされた予定入荷一覧
+  const filteredReceipts = scheduledReceipts.filter(receipt => {
+    if (statusFilter && receipt.status !== statusFilter) return false
+    if (partCodeFilter && !receipt.part_code.toLowerCase().includes(partCodeFilter.toLowerCase())) return false
+    return true
+  })
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto p-6">
+        {/* ページヘッダー */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">📋 予定入荷管理</h1>
+          <p className="text-gray-600">発注から入荷までの予定入荷を一元管理します</p>
+        </div>
+
+        {/* エラー表示 */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-red-600 font-medium">⚠️ {error}</p>
+          </div>
+        )}
+
+        {/* フィルター */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+          <div className="px-6 py-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">ステータス</label>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">全て</option>
+                  <option value="納期回答待ち">納期回答待ち</option>
+                  <option value="入荷予定">入荷予定</option>
+                  <option value="入荷済み">入荷済み</option>
+                  <option value="キャンセル">キャンセル</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">部品コード</label>
+                <input
+                  type="text"
+                  value={partCodeFilter}
+                  onChange={(e) => setPartCodeFilter(e.target.value)}
+                  placeholder="部品コードで検索"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              
+              <div className="flex items-end">
+                <Button onClick={fetchScheduledReceipts} disabled={isLoading}>
+                  {isLoading ? '検索中...' : '検索'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 予定入荷一覧テーブル */}
+        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-900">
+              予定入荷一覧 ({filteredReceipts.length}件)
+            </h2>
+          </div>
+          
+          <div className="overflow-x-auto">
+            {isLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-gray-600 mt-2">読み込み中...</p>
+              </div>
+            ) : filteredReceipts.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-600">該当する予定入荷がありません</p>
+              </div>
+            ) : (
+              <table className="min-w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      操作
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      発注番号
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      部品コード
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      仕入先
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      発注数量
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      予定数量
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      予定入荷日
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      ステータス
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredReceipts.map((receipt) => (
+                    <tr key={receipt.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm space-x-2">
+                        {receipt.status === '納期回答待ち' && (
+                          <PermissionGuard requiredPermissions={['procurement.create']}>
+                            <Button
+                              size="sm"
+                              onClick={() => openDeliveryModal(receipt)}
+                              className="bg-orange-600 hover:bg-orange-700"
+                            >
+                              納期設定
+                            </Button>
+                          </PermissionGuard>
+                        )}
+                        {receipt.status === '入荷予定' && (
+                          <PermissionGuard requiredPermissions={['procurement.create']}>
+                            <Button
+                              size="sm"
+                              onClick={() => openReceiptModal(receipt)}
+                              className="bg-green-600 hover:bg-green-700"
+                            >
+                              入荷処理
+                            </Button>
+                          </PermissionGuard>
+                        )}
+                        {receipt.status === '入荷済み' && (
+                          <span className="text-green-600 text-sm">処理済み</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {receipt.order_no}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {receipt.part_code}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {receipt.supplier}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {receipt.order_quantity}個
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {receipt.scheduled_quantity ? `${receipt.scheduled_quantity}個` : '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {receipt.scheduled_date || '-'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2 py-1 text-xs rounded-full ${getStatusStyle(receipt.status)}`}>
+                          {receipt.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        {/* 納期回答モーダル */}
+        {showDeliveryModal && selectedReceipt && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg max-w-md w-full mx-4">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">納期回答</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  発注番号: {selectedReceipt.order_no} | 部品: {selectedReceipt.part_code}
+                </p>
+              </div>
+              
+              <div className="px-6 py-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    予定入荷数量 <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex">
+                    <input
+                      type="number"
+                      value={deliveryForm.scheduledQuantity}
+                      onChange={(e) => setDeliveryForm(prev => ({ ...prev, scheduledQuantity: e.target.value }))}
+                      min="1"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="px-3 py-2 bg-gray-50 border border-l-0 border-gray-300 rounded-r-md text-gray-600">個</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">発注数量: {selectedReceipt.order_quantity}個</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    予定入荷日 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={deliveryForm.scheduledDate}
+                    onChange={(e) => setDeliveryForm(prev => ({ ...prev, scheduledDate: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">備考</label>
+                  <textarea
+                    value={deliveryForm.remarks}
+                    onChange={(e) => setDeliveryForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="納期回答に関する備考"
+                  />
+                </div>
+              </div>
+              
+              <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+                <Button
+                  onClick={handleDeliveryResponse}
+                  disabled={isLoading || !deliveryForm.scheduledQuantity || !deliveryForm.scheduledDate}
+                  className="flex-1"
+                >
+                  {isLoading ? '処理中...' : '納期回答登録'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowDeliveryModal(false)}
+                  disabled={isLoading}
+                >
+                  キャンセル
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 入荷処理モーダル */}
+        {showReceiptModal && selectedReceipt && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg max-w-md w-full mx-4">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">入荷処理</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  発注番号: {selectedReceipt.order_no} | 部品: {selectedReceipt.part_code}
+                </p>
+              </div>
+              
+              <div className="px-6 py-4 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    実際入荷数量 <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex">
+                    <input
+                      type="number"
+                      value={receiptForm.actualQuantity}
+                      onChange={(e) => setReceiptForm(prev => ({ ...prev, actualQuantity: e.target.value }))}
+                      min="1"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="px-3 py-2 bg-gray-50 border border-l-0 border-gray-300 rounded-r-md text-gray-600">個</span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">予定数量: {selectedReceipt.scheduled_quantity}個</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    入荷日 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={receiptForm.receiptDate}
+                    onChange={(e) => setReceiptForm(prev => ({ ...prev, receiptDate: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">備考</label>
+                  <textarea
+                    value={receiptForm.remarks}
+                    onChange={(e) => setReceiptForm(prev => ({ ...prev, remarks: e.target.value }))}
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="入荷に関する備考"
+                  />
+                </div>
+
+                {/* 在庫情報表示 */}
+                <div className="bg-gray-50 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">現在の在庫情報</h4>
+                  <div className="text-xs text-gray-600 space-y-1">
+                    <div className="flex justify-between">
+                      <span>現在庫数:</span>
+                      <span>{selectedReceipt.current_stock}個</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>予約済数:</span>
+                      <span>{selectedReceipt.reserved_stock}個</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>利用可能数:</span>
+                      <span className={selectedReceipt.current_stock - selectedReceipt.reserved_stock < 0 ? 'text-red-600' : 'text-green-600'}>
+                        {selectedReceipt.current_stock - selectedReceipt.reserved_stock}個
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+                <Button
+                  onClick={handleReceiptProcess}
+                  disabled={isLoading || !receiptForm.actualQuantity || !receiptForm.receiptDate}
+                  className="flex-1"
+                >
+                  {isLoading ? '処理中...' : '入荷処理実行'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowReceiptModal(false)}
+                  disabled={isLoading}
+                >
+                  キャンセル
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
