@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
+import PartCodeSelector from '@/components/ui/PartCodeSelector'
 
 // 在庫データの型定義
 interface InventoryItem {
@@ -29,6 +31,14 @@ interface SearchFilters {
   category: string
   low_stock: boolean
   shortage_only: boolean  // 生産不足フィルタ追加
+}
+
+// 棚卸アイテムの型定義
+interface StocktakingItem {
+  part_code: string
+  actual_quantity: number
+  reason_code: string
+  remarks: string
 }
 
 // ステータス表示コンポーネント
@@ -78,19 +88,18 @@ function SearchFiltersComponent({ filters, onFiltersChange, categories, onSearch
   return (
     <div className="bg-white rounded-lg shadow p-4 mb-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* 部品コード検索 */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            部品コード
-          </label>
-          <input
-            type="text"
-            placeholder="部品コード・仕様で検索"
-            value={filters.search}
-            onChange={(e) => onFiltersChange({ ...filters, search: e.target.value })}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
+                 {/* 部品コード検索 */}
+         <div>
+           <label className="block text-sm font-medium text-gray-700 mb-1">
+             部品コード
+           </label>
+           <PartCodeSelector
+             value={filters.search}
+             onChange={(value) => onFiltersChange({ ...filters, search: value })}
+             placeholder="部品コード・仕様で検索"
+             className="w-full"
+           />
+         </div>
 
         {/* カテゴリフィルタ */}
         <div>
@@ -160,6 +169,7 @@ function SearchFiltersComponent({ filters, onFiltersChange, categories, onSearch
 
 // メイン在庫一覧コンテンツ
 function InventoryListContent() {
+  const searchParams = useSearchParams()
   const [inventoryData, setInventoryData] = useState<InventoryItem[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -172,6 +182,12 @@ function InventoryListContent() {
     low_stock: false,
     shortage_only: false
   })
+
+  // 棚卸機能の状態
+  const [showStocktaking, setShowStocktaking] = useState(false)
+  const [stocktakingItems, setStocktakingItems] = useState<StocktakingItem[]>([])
+  const [stocktakingLoading, setStocktakingLoading] = useState(false)
+  const [stocktakingError, setStocktakingError] = useState<string | null>(null)
 
   // カテゴリデータ取得（認証不要）
   useEffect(() => {
@@ -250,7 +266,12 @@ function InventoryListContent() {
   // 初回データ取得
   useEffect(() => {
     fetchInventoryData()
-  }, [])
+    
+    // URLパラメータで棚卸機能を自動的に開く
+    if (searchParams.get('stocktaking') === 'true') {
+      setShowStocktaking(true)
+    }
+  }, [searchParams])
 
   // 検索実行
   const handleSearch = () => {
@@ -270,6 +291,85 @@ function InventoryListContent() {
     setTimeout(() => {
       fetchInventoryData()
     }, 100)
+  }
+
+  // 棚卸アイテム追加
+  const addStocktakingItem = () => {
+    const newItem: StocktakingItem = {
+      part_code: '',
+      actual_quantity: 0,
+      reason_code: '',
+      remarks: ''
+    }
+    setStocktakingItems([...stocktakingItems, newItem])
+  }
+
+  // 棚卸アイテム削除
+  const removeStocktakingItem = (index: number) => {
+    setStocktakingItems(stocktakingItems.filter((_, i) => i !== index))
+  }
+
+  // 棚卸アイテム更新
+  const updateStocktakingItem = (index: number, field: keyof StocktakingItem, value: string | number) => {
+    const updatedItems = [...stocktakingItems]
+    updatedItems[index] = { ...updatedItems[index], [field]: value }
+    setStocktakingItems(updatedItems)
+  }
+
+  // 棚卸実行
+  const executeStocktaking = async () => {
+    try {
+      setStocktakingLoading(true)
+      setStocktakingError(null)
+
+      // バリデーション
+      const validItems = stocktakingItems.filter(item => 
+        item.part_code.trim() && item.actual_quantity >= 0
+      )
+
+      if (validItems.length === 0) {
+        throw new Error('棚卸対象が指定されていません')
+      }
+
+      const token = localStorage.getItem('token')
+      if (!token) {
+        throw new Error('認証トークンが見つかりません')
+      }
+
+      const response = await fetch('http://localhost:3000/api/stocktaking/execute', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          stocktaking_items: validItems,
+          stocktaking_date: new Date().toISOString().split('T')[0]
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '棚卸実行に失敗しました')
+      }
+
+      const result = await response.json()
+      
+      if (result.success) {
+        alert(`棚卸が完了しました（処理: ${result.data.processed_count}件、差異: ${result.data.difference_count}件）`)
+        setStocktakingItems([])
+        setShowStocktaking(false)
+        fetchInventoryData() // 在庫データを再取得
+      } else {
+        throw new Error(result.message || '棚卸実行に失敗しました')
+      }
+
+    } catch (err) {
+      console.error('棚卸実行エラー:', err)
+      setStocktakingError(err instanceof Error ? err.message : '不明なエラーが発生しました')
+    } finally {
+      setStocktakingLoading(false)
+    }
   }
 
   // ローディング状態
@@ -328,8 +428,16 @@ function InventoryListContent() {
       {/* ヘッダー */}
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">在庫一覧</h1>
-        <div className="text-sm text-gray-500">
-          最終更新: {new Date().toLocaleString('ja-JP')}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowStocktaking(!showStocktaking)}
+            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+          >
+            {showStocktaking ? '📋 棚卸を閉じる' : '📋 棚卸'}
+          </button>
+          <div className="text-sm text-gray-500">
+            最終更新: {new Date().toLocaleString('ja-JP')}
+          </div>
         </div>
       </div>
 
@@ -348,6 +456,138 @@ function InventoryListContent() {
           <div className="text-2xl font-bold text-yellow-900">{lowStockItems}件</div>
         </div>
       </div>
+
+      {/* 棚卸機能 */}
+      {showStocktaking && (
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+                     <div className="flex justify-between items-center mb-4">
+             <div className="flex items-center gap-3">
+               <h2 className="text-lg font-medium text-gray-900">📋 棚卸</h2>
+               <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded-full">
+                 {stocktakingItems.length}件追加済み
+               </span>
+             </div>
+             <div className="flex gap-2">
+               <button
+                 onClick={addStocktakingItem}
+                 className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+               >
+                 ➕ 部品追加
+               </button>
+               <button
+                 onClick={executeStocktaking}
+                 disabled={stocktakingLoading || stocktakingItems.length === 0}
+                 className="px-4 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+               >
+                 {stocktakingLoading ? '🔄 実行中...' : '✅ 棚卸実行'}
+               </button>
+             </div>
+           </div>
+
+          {stocktakingError && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+              {stocktakingError}
+            </div>
+          )}
+
+          {stocktakingItems.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              「部品追加」ボタンで棚卸対象を追加してください
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {stocktakingItems.map((item, index) => (
+                <div key={index} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <h3 className="text-sm font-medium text-gray-900">部品 {index + 1}</h3>
+                    <button
+                      onClick={() => removeStocktakingItem(index)}
+                      className="text-red-600 hover:text-red-800 text-sm"
+                    >
+                      ✕ 削除
+                    </button>
+                  </div>
+                  
+                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+                     {/* 部品コード選択 */}
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         部品コード *
+                       </label>
+                       <PartCodeSelector
+                         value={item.part_code}
+                         onChange={(value) => updateStocktakingItem(index, 'part_code', value)}
+                         placeholder="部品コードを選択..."
+                         className="w-full"
+                       />
+                     </div>
+
+                     {/* 現在在庫 */}
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         現在在庫
+                       </label>
+                       <div className="px-3 py-2 bg-gray-50 border border-gray-300 rounded-md text-sm text-gray-600">
+                         {(() => {
+                           const inventoryItem = inventoryData.find(inv => inv.part_code === item.part_code)
+                           return inventoryItem ? `${inventoryItem.current_stock.toLocaleString()}個` : '不明'
+                         })()}
+                       </div>
+                     </div>
+
+                     {/* 実地数量 */}
+                     <div>
+                       <label className="block text-sm font-medium text-gray-700 mb-1">
+                         実地数量 *
+                       </label>
+                       <input
+                         type="number"
+                         min="0"
+                         value={item.actual_quantity}
+                         onChange={(e) => updateStocktakingItem(index, 'actual_quantity', parseInt(e.target.value) || 0)}
+                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                         placeholder="0"
+                       />
+                     </div>
+
+                    {/* 差異理由 */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        差異理由
+                      </label>
+                      <select
+                        value={item.reason_code}
+                        onChange={(e) => updateStocktakingItem(index, 'reason_code', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">理由なし</option>
+                        <option value="盗難">盗難</option>
+                        <option value="破損">破損</option>
+                        <option value="計数ミス">計数ミス</option>
+                        <option value="その他">その他</option>
+                      </select>
+                    </div>
+
+                    {/* 備考 */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        備考
+                      </label>
+                      <input
+                        type="text"
+                        value={item.remarks}
+                        onChange={(e) => updateStocktakingItem(index, 'remarks', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="備考があれば入力..."
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 検索・フィルタ */}
       <SearchFiltersComponent
@@ -396,6 +636,9 @@ function InventoryListContent() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     仕入先
                   </th>
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider ">
+                    操作
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -437,6 +680,34 @@ function InventoryListContent() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {item.supplier || '未設定'}
                     </td>
+                                         <td className="px-6 py-4 whitespace-nowrap text-center">
+                       <button
+                         onClick={() => {
+                           setShowStocktaking(true)
+                           // 既に追加されているかチェック
+                           const isAlreadyAdded = stocktakingItems.some(
+                             stockItem => stockItem.part_code === item.part_code
+                           )
+                           
+                           if (!isAlreadyAdded) {
+                             // 現在の部品を自動設定して追加
+                             const newItem: StocktakingItem = {
+                               part_code: item.part_code,
+                               actual_quantity: item.current_stock,
+                               reason_code: '',
+                               remarks: ''
+                             }
+                             setStocktakingItems([...stocktakingItems, newItem])
+                           } else {
+                             // 既に追加されている場合はアラート
+                             alert(`${item.part_code} は既に棚卸対象に追加されています`)
+                           }
+                         }}
+                         className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       >
+                         📋 棚卸
+                       </button>
+                     </td>
                   </tr>
                 ))}
               </tbody>
