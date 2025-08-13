@@ -39,37 +39,40 @@ const PAGE_ACCESS_CONFIG: Record<string, PageAccessConfig> = {
   '/inventory/list': {
     requireAuth: true
   },
-  
-  // 資材担当以上の権限が必要
-  '/inventory/receipt': {
-    requireAuth: true,
-    allowedRoles: ['admin', 'production_manager', 'material_staff'] as UserRole[]
-  },
   '/inventory/transactions': {
-    requireAuth: true,
-    allowedRoles: ['admin', 'production_manager', 'material_staff'] as UserRole[]
+    requireAuth: true
   },
   
-  // 生産管理者以上の権限が必要
+  // 生産計画（閲覧は全ユーザー、編集は管理者・生産管理者）- 修正！
   '/production': {
-    requireAuth: true,
-    allowedRoles: ['admin', 'production_manager'] as UserRole[]
+    requireAuth: true
+    // allowedRoles を削除 - 全ユーザーアクセス可能
   },
   '/production/plans': {
-    requireAuth: true,
-    allowedRoles: ['admin', 'production_manager'] as UserRole[]
+    requireAuth: true
+    // allowedRoles を削除 - 全ユーザーアクセス可能
   },
   '/production/requirements': {
-    requireAuth: true,
-    allowedRoles: ['admin', 'production_manager'] as UserRole[]
+    requireAuth: true
+    // allowedRoles を削除 - 全ユーザーアクセス可能
   },
   
-  // 調達管理（資材担当以上）
+  // 調達管理（全ユーザー閲覧可能）- 修正！
   '/procurement': {
-    requireAuth: true,
-    allowedRoles: ['admin', 'production_manager', 'material_staff'] as UserRole[]
+    requireAuth: true
+    // allowedRoles を削除 - 全ユーザーアクセス可能
+  },
+  '/procurement/scheduled': {
+    requireAuth: true
+    // allowedRoles を削除 - 全ユーザーアクセス可能
   },
   '/procurement/scheduled-receipts': {
+    requireAuth: true
+    // allowedRoles を削除 - 全ユーザーアクセス可能
+  },
+  
+  // 資材担当以上の権限が必要（編集系）
+  '/inventory/receipt': {
     requireAuth: true,
     allowedRoles: ['admin', 'production_manager', 'material_staff'] as UserRole[]
   },
@@ -88,6 +91,10 @@ const PAGE_ACCESS_CONFIG: Record<string, PageAccessConfig> = {
     allowedRoles: ['admin'] as UserRole[]
   },
   '/masters/bom': {
+    requireAuth: true,
+    allowedRoles: ['admin'] as UserRole[]
+  },
+  '/masters/users': {
     requireAuth: true,
     allowedRoles: ['admin'] as UserRole[]
   },
@@ -156,7 +163,7 @@ function AccessDenied({ userRole, requiredRoles }: { userRole?: UserRole, requir
 
         <button
           onClick={handleBackToDashboard}
-          className="btn-primary w-full"
+          className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           ダッシュボードに戻る
         </button>
@@ -186,98 +193,50 @@ export default function RouteGuard({
     // ローディング中は何もしない
     if (isLoading) return
 
-    // 認証が必要なページで未認証の場合
-    if (pageConfig.requireAuth && !isAuthenticated) {
-      router.push(fallbackPath)
+    // 認証が不要なページの場合
+    if (!pageConfig.requireAuth) {
       return
     }
 
-    // 認証済みユーザーがログインページにアクセスした場合、ダッシュボードにリダイレクト
-    if (pathname === '/login' && isAuthenticated) {
-      router.push('/')
+    // 未認証の場合はログインページにリダイレクト
+    if (!isAuthenticated) {
+      router.push('/login')
       return
     }
 
-  }, [isLoading, isAuthenticated, pathname, router, fallbackPath, pageConfig.requireAuth])
+    // 権限チェック（ページ設定または props で指定された権限）
+    const requiredRoles = pageConfig.allowedRoles || allowedRoles
+    if (requiredRoles && requiredRoles.length > 0 && user?.role) {
+      if (!requiredRoles.includes(user.role)) {
+        // アクセス拒否ページを表示（リダイレクトしない）
+        return
+      }
+    }
+  }, [isLoading, isAuthenticated, user, router, pathname, pageConfig, allowedRoles])
 
-  // ローディング中の表示
+  // ローディング中
   if (isLoading) {
     return <LoadingSpinner />
   }
 
-  // 認証が必要なページで未認証の場合（リダイレクト処理中）
-  if (pageConfig.requireAuth && !isAuthenticated) {
+  // 認証が不要なページの場合はそのまま表示
+  if (!pageConfig.requireAuth) {
+    return <>{children}</>
+  }
+
+  // 未認証の場合は何も表示しない（useEffectでリダイレクトされる）
+  if (!isAuthenticated) {
     return <LoadingSpinner />
   }
 
-  // 認証済みだが権限不足の場合
-  if (isAuthenticated && pageConfig.allowedRoles && user) {
-    const hasRequiredRole = pageConfig.allowedRoles.includes(user.role)
-    
-    if (!hasRequiredRole) {
-      return <AccessDenied userRole={user.role} requiredRoles={pageConfig.allowedRoles} />
+  // 権限チェック
+  const requiredRoles = pageConfig.allowedRoles || allowedRoles
+  if (requiredRoles && requiredRoles.length > 0 && user?.role) {
+    if (!requiredRoles.includes(user.role)) {
+      return <AccessDenied userRole={user.role} requiredRoles={requiredRoles} />
     }
   }
 
-  // 条件を満たしている場合、子コンポーネントを表示
+  // 認証済み・権限OK
   return <>{children}</>
-}
-
-// 便利なHOC（Higher-Order Component）
-export function withRouteGuard<P extends object>(
-  Component: React.ComponentType<P>,
-  guardOptions?: Omit<RouteGuardProps, 'children'>
-) {
-  return function WrappedComponent(props: P) {
-    return (
-      <RouteGuard {...guardOptions}>
-        <Component {...props} />
-      </RouteGuard>
-    )
-  }
-}
-
-// 権限チェック用のユーティリティ関数
-export function checkPageAccess(pathname: string, userRole?: UserRole): {
-  hasAccess: boolean
-  requiresAuth: boolean
-  allowedRoles?: UserRole[]
-} {
-  const config = PAGE_ACCESS_CONFIG[pathname]
-  
-  if (!config) {
-    // 設定がないページは認証が必要と仮定
-    return {
-      hasAccess: !!userRole,
-      requiresAuth: true
-    }
-  }
-
-  if (!config.requireAuth) {
-    return {
-      hasAccess: true,
-      requiresAuth: false
-    }
-  }
-
-  if (!userRole) {
-    return {
-      hasAccess: false,
-      requiresAuth: true,
-      allowedRoles: config.allowedRoles
-    }
-  }
-
-  if (config.allowedRoles) {
-    return {
-      hasAccess: config.allowedRoles.includes(userRole),
-      requiresAuth: true,
-      allowedRoles: config.allowedRoles
-    }
-  }
-
-  return {
-    hasAccess: true,
-    requiresAuth: true
-  }
 }

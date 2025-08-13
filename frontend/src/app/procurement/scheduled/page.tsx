@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
-import PermissionGuard from '@/components/guards/PermissionGuard'
+import PermissionGuard, { ProcurementEditGuard, usePermissionCheck } from '@/components/guards/PermissionGuard'
 import Button from '@/components/ui/Button'
 import PartCodeSelector from '@/components/ui/PartCodeSelector'
 
@@ -392,14 +392,14 @@ function ScheduledReceiptsContent() {
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               {/* 新規発注ボタン */}
               <div>
-                <PermissionGuard requiredPermissions={['procurement.create']}>
+                <ProcurementEditGuard>
                   <Button
                     onClick={() => setShowOrderModal(true)}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
                     📝 新規発注
                   </Button>
-                </PermissionGuard>
+                </ProcurementEditGuard>
               </div>
               
               {/* フィルター */}
@@ -456,14 +456,14 @@ function ScheduledReceiptsContent() {
             ) : filteredReceipts.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-600">該当する調達情報がありません</p>
-                <PermissionGuard requiredPermissions={['procurement.create']}>
+                <ProcurementEditGuard>
                   <Button
                     onClick={() => setShowOrderModal(true)}
                     className="mt-4 bg-blue-600 hover:bg-blue-700"
                   >
                     📝 新規発注を登録
                   </Button>
-                </PermissionGuard>
+                </ProcurementEditGuard>
               </div>
             ) : (
               <table className="min-w-full">
@@ -500,7 +500,7 @@ function ScheduledReceiptsContent() {
                     <tr key={receipt.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm space-x-2">
                         {receipt.status === '納期回答待ち' && (
-                          <PermissionGuard requiredPermissions={['procurement.create']}>
+                          <ProcurementEditGuard>
                             <Button
                               size="sm"
                               onClick={() => openDeliveryModal(receipt)}
@@ -508,10 +508,10 @@ function ScheduledReceiptsContent() {
                             >
                               納期設定
                             </Button>
-                          </PermissionGuard>
+                          </ProcurementEditGuard>
                         )}
                         {receipt.status === '入荷予定' && (
-                          <PermissionGuard requiredPermissions={['procurement.create']}>
+                          <ProcurementEditGuard>
                             <Button
                               size="sm"
                               onClick={() => openReceiptModal(receipt)}
@@ -519,7 +519,7 @@ function ScheduledReceiptsContent() {
                             >
                               入荷処理
                             </Button>
-                          </PermissionGuard>
+                          </ProcurementEditGuard>
                         )}
                         {receipt.status === '入荷済み' && (
                           <span className="text-green-600 text-sm">処理済み</span>

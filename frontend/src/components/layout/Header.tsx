@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/providers/AuthProvider'
-import  PermissionGuard  from '@/components/guards/PermissionGuard'
-import  Button  from '@/components/ui/Button'
+import PermissionGuard from '@/components/guards/PermissionGuard'
+import Button from '@/components/ui/Button'
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
@@ -21,48 +21,64 @@ export function Header() {
     }
   }
 
+  // ロールベース権限制御に変更
   const navigationItems = [
-  {
-    label: 'ダッシュボード',
-    href: '/dashboard',
-    permissions: ['dashboard.view']
-  },
-  {
-    label: '在庫管理',
-    href: '/inventory',
-    permissions: ['inventory.view'],
-    children: [
-      { label: '在庫一覧', href: '/inventory/list', permissions: ['inventory.view'] },
-      { label: '取引履歴', href: '/inventory/transactions', permissions: ['inventory.view'] }
-    ]
-  },
-  {
-    label: '生産計画',
-    href: '/production/plans',  // 直接リンク
-    permissions: ['production.view']
-  },
-  {
-    label: '調達管理',
-    href: '/procurement/scheduled',  // 直接リンク
-    permissions: ['procurement.view']
-  },
-  {
-    label: 'マスタ管理',
-    href: '/masters',
-    permissions: ['masters.view'],
-    children: [
-      { label: '部品マスタ', href: '/masters/parts', permissions: ['masters.view'] },
-      { label: '製品マスタ', href: '/masters/products', permissions: ['masters.view'] },
-      { label: 'BOM管理', href: '/masters/bom', permissions: ['masters.view'] },
-      { label: 'ユーザー管理', href: '/masters/users', permissions: ['masters.view'] },
-    ]
-  },
-  {
-    label: 'レポート',
-    href: '/reports',
-    permissions: ['reports.view']
+    {
+      label: '在庫管理',
+      href: '/inventory',
+      roles: ['admin', 'production_manager', 'material_staff', 'viewer'], // 全ユーザー
+      children: [
+        { 
+          label: '在庫一覧', 
+          href: '/inventory/list', 
+          roles: ['admin', 'production_manager', 'material_staff', 'viewer'] 
+        },
+        { 
+          label: '取引履歴', 
+          href: '/inventory/transactions', 
+          roles: ['admin', 'production_manager', 'material_staff', 'viewer'] 
+        }
+      ]
+    },
+    {
+      label: '生産計画',
+      href: '/production/plans',
+      roles: ['admin', 'production_manager', 'material_staff', 'viewer'] // 全ユーザー（閲覧可能）
+    },
+    {
+      label: '調達管理',
+      href: '/procurement/scheduled',
+      roles: ['admin', 'production_manager', 'material_staff', 'viewer'] // 全ユーザー（閲覧可能）
+    },
+    {
+      label: 'マスタ管理',
+      href: '/masters',
+      roles: ['admin'], // 管理者のみ
+      children: [
+        { label: '部品マスタ', href: '/masters/parts', roles: ['admin'] },
+        { label: '製品マスタ', href: '/masters/products', roles: ['admin'] },
+        { label: 'BOM管理', href: '/masters/bom', roles: ['admin'] },
+        { label: 'ユーザー管理', href: '/masters/users', roles: ['admin'] },
+      ]
+    },
+    {
+      label: 'レポート',
+      href: '/reports',
+      roles: ['admin', 'production_manager', 'material_staff', 'viewer'] // 全ユーザー（閲覧可能）
+    }
+  ]
+
+  // 権限チェック関数
+  const hasRole = (allowedRoles: string[]) => {
+    if (!user?.role) return false
+    const hasPermission = allowedRoles.includes(user.role)
+    console.log('🔍 権限チェック:', {
+      userRole: user.role,
+      allowedRoles: allowedRoles,
+      hasPermission: hasPermission
+    })
+    return hasPermission
   }
-]
 
   return (
     <header className="bg-white shadow-sm border-b border-gray-200">
@@ -82,9 +98,14 @@ export function Header() {
 
           {/* デスクトップナビゲーション */}
           <nav className="hidden md:flex space-x-8">
-            {navigationItems.map((item) => (
-              <PermissionGuard key={item.href} requiredPermissions={item.permissions}>
-                <div className="relative group">
+            {navigationItems.map((item) => {
+              // ロールベース権限チェック
+              if (!hasRole(item.roles)) {
+                return null // 権限がない場合は表示しない
+              }
+
+              return (
+                <div key={item.href} className="relative group">
                   <Link
                     href={item.href}
                     className="text-gray-700 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors duration-200"
@@ -94,24 +115,28 @@ export function Header() {
                   
                   {/* ドロップダウンメニュー */}
                   {item.children && (
-                    <div className="absolute left-0 mt-2 w-48 bg-white rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+                    <div className="absolute left-0 mt-2 w-56 bg-white rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
                       <div className="py-1">
-                        {item.children.map((child) => (
-                          <PermissionGuard key={child.href} requiredPermissions={child.permissions}>
+                        {item.children.map((child) => {
+                          if (!hasRole(child.roles)) {
+                            return null
+                          }
+                          return (
                             <Link
+                              key={child.href}
                               href={child.href}
                               className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 hover:text-blue-600 transition-colors duration-200"
                             >
                               {child.label}
                             </Link>
-                          </PermissionGuard>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   )}
                 </div>
-              </PermissionGuard>
-            ))}
+              )
+            })}
           </nav>
 
           {/* ユーザーメニュー */}
@@ -140,7 +165,6 @@ export function Header() {
               onClick={() => setIsMenuOpen(!isMenuOpen)}
             >
               <span className="sr-only">メニューを開く</span>
-              {/* ハンバーガーアイコン */}
               <svg
                 className="h-6 w-6"
                 stroke="currentColor"
@@ -171,9 +195,13 @@ export function Header() {
         {isMenuOpen && (
           <div className="md:hidden">
             <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 border-t border-gray-200">
-              {navigationItems.map((item) => (
-                <PermissionGuard key={item.href} requiredPermissions={item.permissions}>
-                  <div>
+              {navigationItems.map((item) => {
+                if (!hasRole(item.roles)) {
+                  return null
+                }
+
+                return (
+                  <div key={item.href}>
                     <Link
                       href={item.href}
                       className="text-gray-700 hover:text-blue-600 block px-3 py-2 text-base font-medium"
@@ -183,22 +211,26 @@ export function Header() {
                     </Link>
                     {item.children && (
                       <div className="pl-4">
-                        {item.children.map((child) => (
-                          <PermissionGuard key={child.href} requiredPermissions={child.permissions}>
+                        {item.children.map((child) => {
+                          if (!hasRole(child.roles)) {
+                            return null
+                          }
+                          return (
                             <Link
+                              key={child.href}
                               href={child.href}
                               className="text-gray-600 hover:text-blue-600 block px-3 py-2 text-sm"
                               onClick={() => setIsMenuOpen(false)}
                             >
                               {child.label}
                             </Link>
-                          </PermissionGuard>
-                        ))}
+                          )
+                        })}
                       </div>
                     )}
                   </div>
-                </PermissionGuard>
-              ))}
+                )
+              })}
               
               {/* モバイル用ユーザー情報・ログアウト */}
               <div className="border-t border-gray-200 pt-4 mt-4">

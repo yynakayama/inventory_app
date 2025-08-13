@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
+import { InventoryEditGuard, usePermissionCheck } from '@/components/guards/PermissionGuard'
 import PartCodeSelector from '@/components/ui/PartCodeSelector'
 
 // 在庫データの型定義
@@ -170,6 +171,7 @@ function SearchFiltersComponent({ filters, onFiltersChange, categories, onSearch
 // メイン在庫一覧コンテンツ
 function InventoryListContent() {
   const searchParams = useSearchParams()
+  const { canEditInventory } = usePermissionCheck()
   const [inventoryData, setInventoryData] = useState<InventoryItem[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -429,12 +431,14 @@ function InventoryListContent() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-gray-900">在庫一覧</h1>
         <div className="flex items-center gap-4">
-          <button
-            onClick={() => setShowStocktaking(!showStocktaking)}
-            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
-          >
-            {showStocktaking ? '📋 棚卸を閉じる' : '📋 棚卸'}
-          </button>
+          <InventoryEditGuard>
+            <button
+              onClick={() => setShowStocktaking(!showStocktaking)}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+            >
+              {showStocktaking ? '📋 棚卸を閉じる' : '📋 棚卸'}
+            </button>
+          </InventoryEditGuard>
           <div className="text-sm text-gray-500">
             最終更新: {new Date().toLocaleString('ja-JP')}
           </div>
@@ -459,7 +463,8 @@ function InventoryListContent() {
 
       {/* 棚卸機能 */}
       {showStocktaking && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <InventoryEditGuard>
+          <div className="bg-white rounded-lg shadow p-6 mb-6">
                      <div className="flex justify-between items-center mb-4">
              <div className="flex items-center gap-3">
                <h2 className="text-lg font-medium text-gray-900">📋 棚卸</h2>
@@ -587,6 +592,7 @@ function InventoryListContent() {
             </div>
           )}
         </div>
+        </InventoryEditGuard>
       )}
 
       {/* 検索・フィルタ */}
@@ -680,34 +686,36 @@ function InventoryListContent() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {item.supplier || '未設定'}
                     </td>
-                                         <td className="px-6 py-4 whitespace-nowrap text-center">
-                       <button
-                         onClick={() => {
-                           setShowStocktaking(true)
-                           // 既に追加されているかチェック
-                           const isAlreadyAdded = stocktakingItems.some(
-                             stockItem => stockItem.part_code === item.part_code
-                           )
-                           
-                           if (!isAlreadyAdded) {
-                             // 現在の部品を自動設定して追加
-                             const newItem: StocktakingItem = {
-                               part_code: item.part_code,
-                               actual_quantity: item.current_stock,
-                               reason_code: '',
-                               remarks: ''
-                             }
-                             setStocktakingItems([...stocktakingItems, newItem])
-                           } else {
-                             // 既に追加されている場合はアラート
-                             alert(`${item.part_code} は既に棚卸対象に追加されています`)
-                           }
-                         }}
-                         className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                       >
-                         📋 棚卸
-                       </button>
-                     </td>
+                                                             <td className="px-6 py-4 whitespace-nowrap text-center">
+                      <InventoryEditGuard>
+                        <button
+                          onClick={() => {
+                            setShowStocktaking(true)
+                            // 既に追加されているかチェック
+                            const isAlreadyAdded = stocktakingItems.some(
+                              stockItem => stockItem.part_code === item.part_code
+                            )
+                            
+                            if (!isAlreadyAdded) {
+                              // 現在の部品を自動設定して追加
+                              const newItem: StocktakingItem = {
+                                part_code: item.part_code,
+                                actual_quantity: item.current_stock,
+                                reason_code: '',
+                                remarks: ''
+                              }
+                              setStocktakingItems([...stocktakingItems, newItem])
+                            } else {
+                              // 既に追加されている場合はアラート
+                              alert(`${item.part_code} は既に棚卸対象に追加されています`)
+                            }
+                          }}
+                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          📋 棚卸
+                        </button>
+                      </InventoryEditGuard>
+                    </td>
                   </tr>
                 ))}
               </tbody>

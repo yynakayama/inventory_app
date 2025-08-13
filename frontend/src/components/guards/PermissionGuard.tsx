@@ -34,8 +34,8 @@ const OPERATION_PERMISSIONS = {
   'procurement.update': ['admin', 'production_manager', 'material_staff'] as UserRole[],
   'procurement.delete': ['admin', 'production_manager'] as UserRole[],
   
-  // マスタ管理
-  'master.view': ['admin', 'production_manager', 'material_staff', 'viewer'] as UserRole[],
+  // マスタ管理（管理者のみ）
+  'master.view': ['admin'] as UserRole[],
   'master.create': ['admin'] as UserRole[],
   'master.update': ['admin'] as UserRole[],
   'master.delete': ['admin'] as UserRole[],
@@ -118,7 +118,16 @@ export function usePermissionCheck() {
     canManageMaster: () => checkPermission('master.update'),
     isAdmin: () => checkRole('admin'),
     isProductionManager: () => checkRole(['admin', 'production_manager'] as UserRole[]),
-    isMaterialStaff: () => checkRole(['admin', 'material_staff'] as UserRole[])
+    isMaterialStaff: () => checkRole(['admin', 'material_staff'] as UserRole[]),
+    // 編集権限チェック
+    canEditProduction: () => checkPermission('production.update'),
+    canEditProcurement: () => checkPermission('procurement.update'),
+    canCreateProduction: () => checkPermission('production.create'),
+    canCreateProcurement: () => checkPermission('procurement.create'),
+    // 閲覧権限チェック（全ユーザー）
+    canViewProduction: () => checkPermission('production.view'),
+    canViewProcurement: () => checkPermission('procurement.view'),
+    canViewReports: () => checkPermission('reports.view')
   }
 }
 
@@ -142,6 +151,50 @@ export function ProductionManagerOnly({ children, fallback }: { children: ReactN
 export function MaterialStaffOnly({ children, fallback }: { children: ReactNode, fallback?: ReactNode }) {
   return (
     <PermissionGuard requiredRoles={['admin', 'material_staff'] as UserRole[]} fallback={fallback}>
+      {children}
+    </PermissionGuard>
+  )
+}
+
+// 編集権限用の便利コンポーネント
+export function EditPermissionGuard({ 
+  children, 
+  fallback,
+  operation 
+}: { 
+  children: ReactNode, 
+  fallback?: ReactNode,
+  operation: keyof typeof OPERATION_PERMISSIONS 
+}) {
+  return (
+    <PermissionGuard requiredPermissions={[operation]} fallback={fallback}>
+      {children}
+    </PermissionGuard>
+  )
+}
+
+// 在庫編集権限
+export function InventoryEditGuard({ children, fallback }: { children: ReactNode, fallback?: ReactNode }) {
+  return (
+    <PermissionGuard requiredPermissions={['inventory.update']} fallback={fallback}>
+      {children}
+    </PermissionGuard>
+  )
+}
+
+// 生産計画編集権限
+export function ProductionEditGuard({ children, fallback }: { children: ReactNode, fallback?: ReactNode }) {
+  return (
+    <PermissionGuard requiredPermissions={['production.update']} fallback={fallback}>
+      {children}
+    </PermissionGuard>
+  )
+}
+
+// 調達編集権限
+export function ProcurementEditGuard({ children, fallback }: { children: ReactNode, fallback?: ReactNode }) {
+  return (
+    <PermissionGuard requiredPermissions={['procurement.update']} fallback={fallback}>
       {children}
     </PermissionGuard>
   )
