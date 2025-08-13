@@ -14,7 +14,7 @@ interface ProductionPlan {
   product_name: string
   planned_quantity: number
   start_date: string
-  status: '計画' | '生産中' | '完了' | 'キャンセル'
+  status: '計画' | '生産中' | '完了'
   remarks: string | null
   created_by: string
   created_at: string
@@ -105,8 +105,6 @@ function StatusBadge({ status }: StatusBadgeProps) {
         return 'bg-yellow-100 text-yellow-800'
       case '完了':
         return 'bg-green-100 text-green-800'
-      case 'キャンセル':
-        return 'bg-gray-100 text-gray-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
@@ -120,8 +118,6 @@ function StatusBadge({ status }: StatusBadgeProps) {
         return '🔄'
       case '完了':
         return '✅'
-      case 'キャンセル':
-        return '❌'
       default:
         return '📋'
     }
@@ -202,7 +198,6 @@ function SearchFiltersComponent({ filters, onFiltersChange, products, onSearch, 
             <option value="計画">📋 計画</option>
             <option value="生産中">🔄 生産中</option>
             <option value="完了">✅ 完了</option>
-            <option value="キャンセル">❌ キャンセル</option>
           </select>
         </div>
 
@@ -312,7 +307,7 @@ function ProductionPlansContent() {
   }, [])
 
   // 生産計画一覧を取得
-  const fetchProductionPlans = async () => {
+  const fetchProductionPlans = async (searchFilters?: SearchFilters) => {
     try {
       setLoading(true)
       setError('')
@@ -322,13 +317,24 @@ function ProductionPlansContent() {
         throw new Error('認証トークンが見つかりません')
       }
 
-      // クエリパラメータ構築
+      // 検索フィルタ: 引数で渡されたものを優先、なければ現在のfiltersを使用
+      const currentFilters = searchFilters || filters
+
+      // 修正: クエリパラメータ構築（バックエンドAPIが期待するパラメータ名に合わせる）
       const params = new URLSearchParams()
-      if (filters.product_code) params.append('product_code', filters.product_code)
-      if (filters.status) params.append('status', filters.status)
-      if (filters.building_no) params.append('building_no', filters.building_no)
-      if (filters.date_from) params.append('start_date_from', filters.date_from)
-      if (filters.date_to) params.append('start_date_to', filters.date_to)
+      if (currentFilters.product_code) params.append('product_code', currentFilters.product_code)
+      if (currentFilters.status) params.append('status', currentFilters.status)
+      if (currentFilters.building_no) params.append('building_no', currentFilters.building_no)
+      if (currentFilters.date_from) params.append('start_date_from', currentFilters.date_from)
+      if (currentFilters.date_to) params.append('start_date_to', currentFilters.date_to)
+
+      // 完了した製品の表示制御: ステータスで「完了」を選択していない場合は除外
+      if (!currentFilters.status || currentFilters.status !== '完了') {
+        params.append('exclude_completed', 'true')
+      }
+
+      // デバッグ用ログ
+      console.log('🔍 検索実行:', { currentFilters, params: params.toString() })
 
       const response = await fetch(`http://localhost:3000/api/plans?${params.toString()}`, {
         method: 'GET',
@@ -344,7 +350,9 @@ function ProductionPlansContent() {
 
       const result = await response.json()
       if (result.success) {
+        console.log('✅ 取得した生産計画データ:', result.data)
         setProductionPlans(result.data || [])
+        console.log('✅ 検索完了:', result.data?.length || 0, '件取得')
       } else {
         throw new Error(result.message || 'データ取得に失敗しました')
       }
@@ -376,22 +384,25 @@ function ProductionPlansContent() {
 
   // 検索実行
   const handleSearch = () => {
-    fetchProductionPlans()
+    console.log('🔍 検索ボタンクリック - 現在のフィルター:', filters)
+    fetchProductionPlans(filters)
   }
 
   // フィルタリセット
   const handleReset = () => {
-    setFilters({
+    const resetFilters = {
       product_code: '',
       status: '',
       building_no: '',
       date_from: '',
       date_to: ''
-    })
+    }
+    console.log('🔄 フィルターリセット')
+    setFilters(resetFilters)
     
     // リセット後は自動で再検索
     setTimeout(() => {
-      fetchProductionPlans()
+      fetchProductionPlans(resetFilters)
     }, 100)
   }
 
@@ -493,7 +504,72 @@ function ProductionPlansContent() {
     }
   }
 
-  // ステータス更新
+  // 生産計画削除（データベースから完全削除）
+  const handleDeletePlan = async (planId: number) => {
+    // 削除対象の計画情報を取得
+    const targetPlan = productionPlans.find(plan => plan.id === planId)
+    const planInfo = targetPlan ? `${targetPlan.product_code} (${targetPlan.planned_quantity}個)` : `ID: ${planId}`
+    
+    const confirmed = window.confirm(
+      `🗑️ 生産計画を削除しますか？\n\n対象: ${planInfo}\n\n※この操作は取り消せません。データは完全に削除されます。`
+    )
+    
+    if (!confirmed) return
+
+    // 二重確認（重要なデータ削除のため）
+    const doubleConfirmed = window.confirm(
+      `⚠️ 最終確認\n\n本当にこの生産計画を削除しますか？\n\n${planInfo}\n\n削除されたデータは復元できません。`
+    )
+    
+    if (!doubleConfirmed) return
+
+    try {
+      setLoading(true)
+      
+      const token = localStorage.getItem('token')
+      
+      console.log('🗑️ 生産計画削除リクエスト:', { planId, planInfo })
+      
+      const response = await fetch(`http://localhost:3000/api/plans/${planId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ 削除エラー:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseText: errorText
+        })
+        
+        try {
+          const errorData = JSON.parse(errorText)
+          throw new Error(errorData.message || `HTTPエラー ${response.status}: ${response.statusText}`)
+        } catch (parseError) {
+          throw new Error(`HTTPエラー ${response.status}: ${errorText || response.statusText}`)
+        }
+      }
+      
+      const result = await response.json()
+      console.log('✅ 生産計画削除成功:', result)
+      
+      // 一覧を再取得して表示を更新
+      await fetchProductionPlans()
+      alert(`生産計画を削除しました: ${planInfo}`)
+      
+    } catch (err) {
+      console.error('❌ 生産計画削除エラー:', err)
+      setError(err instanceof Error ? err.message : '生産計画削除エラー')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 修正: ステータス更新（バックエンドが期待する完全なリクエストボディに修正）
   const handleStatusChange = async (planId: number, newStatus: string) => {
     const confirmed = window.confirm(
       `ステータスを「${newStatus}」に変更しますか？`
@@ -505,24 +581,165 @@ function ProductionPlansContent() {
       setLoading(true)
       
       const token = localStorage.getItem('token')
+      
+      // まず現在の計画データを取得
+      console.log('🔍 全生産計画データ:', productionPlans)
+      console.log('🔍 検索対象planId:', planId, 'typeof:', typeof planId)
+      
+      const currentPlan = productionPlans.find(plan => {
+        console.log('🔍 比較:', plan.id, typeof plan.id, '===', planId, typeof planId, '→', plan.id === planId)
+        return plan.id === planId
+      })
+      
+      // 緊急対応：currentPlanが見つからない場合はAPIから直接取得
+      if (!currentPlan) {
+        console.error('❌ 計画データが見つかりません。利用可能なID:', productionPlans.map(p => p.id))
+        
+        // APIから直接計画データを取得
+        console.log('🔄 APIから直接計画データを取得します...')
+        const planResponse = await fetch(`http://localhost:3000/api/plans/${planId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        })
+        
+        if (!planResponse.ok) {
+          throw new Error('計画データの直接取得に失敗しました')
+        }
+        
+        const planResult = await planResponse.json()
+        if (!planResult.success) {
+          throw new Error('計画データの取得に失敗しました')
+        }
+        
+        const apiPlan = planResult.data
+        console.log('📊 APIから取得した計画データ:', apiPlan)
+        
+        // APIから取得したデータでrequestBodyを構築
+        const formattedStartDate = apiPlan.start_date?.includes('T') 
+          ? apiPlan.start_date.split('T')[0] 
+          : apiPlan.start_date
+
+        const requestBody = {
+          building_no: apiPlan.building_no || "",
+          product_code: apiPlan.product_code,
+          planned_quantity: Number(apiPlan.planned_quantity),
+          start_date: formattedStartDate,
+          status: newStatus,
+          remarks: apiPlan.remarks || ""
+        }
+        
+        console.log('📝 APIデータから構築されたrequestBody:', requestBody)
+        
+        // ここでAPIリクエストを実行
+        const updateResponse = await fetch(`http://localhost:3000/api/plans/${planId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(requestBody)
+        })
+        
+        if (!updateResponse.ok) {
+          const errorText = await updateResponse.text()
+          console.error('❌ HTTPエラー:', {
+            status: updateResponse.status,
+            statusText: updateResponse.statusText,
+            responseText: errorText
+          })
+          
+          try {
+            const errorData = JSON.parse(errorText)
+            console.error('❌ ステータス更新エラーレスポンス:', errorData)
+            throw new Error(errorData.message || `HTTPエラー ${updateResponse.status}: ${updateResponse.statusText}`)
+          } catch (parseError) {
+            throw new Error(`HTTPエラー ${updateResponse.status}: ${errorText || updateResponse.statusText}`)
+          }
+        }
+        
+        const updateResult = await updateResponse.json()
+        console.log('✅ ステータス更新成功:', updateResult)
+        
+        await fetchProductionPlans()
+        alert(`ステータスを「${newStatus}」に更新しました`)
+        return
+      }
+
+      // 現在の計画データの詳細を確認（デバッグ用）
+      console.log('📊 現在の計画データ詳細:', {
+        id: currentPlan.id,
+        building_no: currentPlan.building_no,
+        product_code: currentPlan.product_code,
+        planned_quantity: currentPlan.planned_quantity,
+        start_date: currentPlan.start_date,
+        current_status: currentPlan.status,
+        remarks: currentPlan.remarks,
+        created_by: currentPlan.created_by
+      })
+
+      // 日付フォーマットを確実にYYYY-MM-DD形式にする
+      const formattedStartDate = currentPlan.start_date?.includes('T') 
+        ? currentPlan.start_date.split('T')[0] 
+        : currentPlan.start_date
+
+      // バックエンドが期待する完全なリクエストボディを構築
+      const requestBody = {
+        building_no: currentPlan.building_no || "",
+        product_code: currentPlan.product_code,
+        planned_quantity: Number(currentPlan.planned_quantity),
+        start_date: formattedStartDate,
+        status: newStatus,
+        remarks: currentPlan.remarks || ""
+      }
+      
+      console.log('📝 構築されたrequestBody:', requestBody)
+      
+      // デバッグ用ログ
+      console.log('🚀 ステータス変更リクエスト:', { 
+        planId, 
+        newStatus, 
+        currentPlan: {
+          id: currentPlan.id,
+          product_code: currentPlan.product_code,
+          current_status: currentPlan.status
+        },
+        requestBody 
+      })
+      
       const response = await fetch(`http://localhost:3000/api/plans/${planId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ status: newStatus })
+        body: JSON.stringify(requestBody)
       })
       
+      // 詳細なエラー情報を確認
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || 'ステータス更新に失敗しました')
+        const errorText = await response.text()
+        console.error('❌ HTTPエラー:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseText: errorText
+        })
+        
+        try {
+          const errorData = JSON.parse(errorText)
+          console.error('❌ ステータス更新エラーレスポンス:', errorData)
+          throw new Error(errorData.message || `HTTPエラー ${response.status}: ${response.statusText}`)
+        } catch (parseError) {
+          throw new Error(`HTTPエラー ${response.status}: ${errorText || response.statusText}`)
+        }
       }
+      
+      const result = await response.json()
+      console.log('✅ ステータス更新成功:', result)
       
       await fetchProductionPlans()
       alert(`ステータスを「${newStatus}」に更新しました`)
       
     } catch (err) {
+      console.error('❌ ステータス更新エラー:', err)
       setError(err instanceof Error ? err.message : 'ステータス更新エラー')
     } finally {
       setLoading(false)
@@ -626,9 +843,6 @@ function ProductionPlansContent() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     製品コード
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    製品名
-                  </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                     計画数量
                   </th>
@@ -658,22 +872,40 @@ function ProductionPlansContent() {
                         🧮 所要量計算
                       </Button>
                       {canManageProduction() && plan.status === '計画' && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleStatusChange(plan.id, '生産中')}
-                          className="bg-yellow-600 hover:bg-yellow-700"
-                        >
-                          🔄 開始
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => handleStatusChange(plan.id, '生産中')}
+                            className="bg-yellow-600 hover:bg-yellow-700"
+                          >
+                            🔄 開始
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleDeletePlan(plan.id)}
+                            className="bg-red-600 hover:bg-red-700"
+                          >
+                            🗑️ 削除
+                          </Button>
+                        </>
                       )}
                       {canManageProduction() && plan.status === '生産中' && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleStatusChange(plan.id, '完了')}
-                          className="bg-blue-600 hover:bg-blue-700"
-                        >
-                          ✅ 完了
-                        </Button>
+                        <>
+                          <Button
+                            size="sm"
+                            onClick={() => handleStatusChange(plan.id, '完了')}
+                            className="bg-blue-600 hover:bg-blue-700"
+                          >
+                            ✅ 完了
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => handleDeletePlan(plan.id)}
+                            className="bg-red-600 hover:bg-red-700"
+                          >
+                            🗑️ 削除
+                          </Button>
+                        </>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
@@ -681,9 +913,6 @@ function ProductionPlansContent() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {plan.product_code}
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {plan.product_name}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium text-gray-900">
                       {plan.planned_quantity.toLocaleString()}個
@@ -724,7 +953,11 @@ function ProductionPlansContent() {
                 </label>
                 <select
                   value={planForm.product_code}
-                  onChange={(e) => setPlanForm(prev => ({ ...prev, product_code: e.target.value }))}
+                  onChange={(e) => {
+                    const newValue = e.target.value
+                    console.log('⌨️ 入力変更:', { field: 'product_code', value: newValue })
+                    setPlanForm(prev => ({ ...prev, product_code: newValue }))
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">製品を選択してください</option>
@@ -744,7 +977,11 @@ function ProductionPlansContent() {
                   <input
                     type="number"
                     value={planForm.planned_quantity}
-                    onChange={(e) => setPlanForm(prev => ({ ...prev, planned_quantity: e.target.value }))}
+                    onChange={(e) => {
+                      const newValue = e.target.value
+                      console.log('⌨️ 入力変更:', { field: 'planned_quantity', value: newValue })
+                      setPlanForm(prev => ({ ...prev, planned_quantity: newValue }))
+                    }}
                     min="1"
                     className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="100"
@@ -760,7 +997,11 @@ function ProductionPlansContent() {
                 <input
                   type="date"
                   value={planForm.start_date}
-                  onChange={(e) => setPlanForm(prev => ({ ...prev, start_date: e.target.value }))}
+                  onChange={(e) => {
+                    const newValue = e.target.value
+                    console.log('⌨️ 入力変更:', { field: 'start_date', value: newValue })
+                    setPlanForm(prev => ({ ...prev, start_date: newValue }))
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -770,7 +1011,11 @@ function ProductionPlansContent() {
                 <input
                   type="text"
                   value={planForm.building_no}
-                  onChange={(e) => setPlanForm(prev => ({ ...prev, building_no: e.target.value }))}
+                  onChange={(e) => {
+                    const newValue = e.target.value
+                    console.log('⌨️ 入力変更:', { field: 'building_no', value: newValue })
+                    setPlanForm(prev => ({ ...prev, building_no: newValue }))
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="A棟、B棟など"
                 />
@@ -780,7 +1025,11 @@ function ProductionPlansContent() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">備考</label>
                 <textarea
                   value={planForm.remarks}
-                  onChange={(e) => setPlanForm(prev => ({ ...prev, remarks: e.target.value }))}
+                  onChange={(e) => {
+                    const newValue = e.target.value
+                    console.log('⌨️ 入力変更:', { field: 'remarks', value: newValue })
+                    setPlanForm(prev => ({ ...prev, remarks: newValue }))
+                  }}
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="生産計画に関する備考があれば入力してください"
@@ -815,7 +1064,7 @@ function ProductionPlansContent() {
             <div className="px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-900">🧮 所要量計算結果</h3>
               <p className="text-sm text-gray-600 mt-1">
-                計画ID: #{selectedPlan.id} | 製品: {selectedPlan.product_code} - {selectedPlan.product_name} | 計画数量: {selectedPlan.planned_quantity}個
+                計画ID: #{selectedPlan.id} | 製品: {selectedPlan.product_code} | 計画数量: {selectedPlan.planned_quantity}個
               </p>
             </div>
             

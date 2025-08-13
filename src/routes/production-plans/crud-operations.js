@@ -24,7 +24,67 @@ router.get('/', requireReadAccess, async (req, res) => {
     try {
         console.log(`[${new Date().toISOString()}] 📋 生産計画一覧取得開始: ユーザー=${req.user.username} (${req.user.role})`);
         
+        // クエリパラメータを取得
+        const {
+            product_code,
+            status,
+            building_no,
+            start_date_from,
+            start_date_to,
+            exclude_completed
+        } = req.query;
+        
+        console.log('🔍 検索フィルター:', {
+            product_code,
+            status,
+            building_no,
+            start_date_from,
+            start_date_to,
+            exclude_completed
+        });
+        
         connection = await req.mysql.createConnection(req.dbConfig);
+        
+        // WHERE句の条件を構築
+        let whereConditions = ["pp.status != 'キャンセル'"];
+        let queryParams = [];
+        
+        // 製品コードフィルター
+        if (product_code) {
+            whereConditions.push("pp.product_code = ?");
+            queryParams.push(product_code);
+        }
+        
+        // ステータスフィルター
+        if (status) {
+            whereConditions.push("pp.status = ?");
+            queryParams.push(status);
+        }
+        
+        // 棟番号フィルター
+        if (building_no) {
+            whereConditions.push("pp.building_no LIKE ?");
+            queryParams.push(`%${building_no}%`);
+        }
+        
+        // 開始日フィルター（From）
+        if (start_date_from) {
+            whereConditions.push("pp.start_date >= ?");
+            queryParams.push(start_date_from);
+        }
+        
+        // 開始日フィルター（To）
+        if (start_date_to) {
+            whereConditions.push("pp.start_date <= ?");
+            queryParams.push(start_date_to);
+        }
+        
+        // 完了した製品の除外フィルター
+        if (exclude_completed === 'true') {
+            whereConditions.push("pp.status != '完了'");
+        }
+        
+        const whereClause = whereConditions.join(' AND ');
         
         const query = `
             SELECT 
@@ -41,11 +101,14 @@ router.get('/', requireReadAccess, async (req, res) => {
                 p.remarks as product_remarks
             FROM production_plans pp
             LEFT JOIN products p ON pp.product_code = p.product_code
-            WHERE pp.status != 'キャンセル'
+            WHERE ${whereClause}
             ORDER BY pp.start_date DESC, pp.created_at DESC
         `;
 
-        const [results] = await connection.execute(query);
+        console.log('🔍 実行SQL:', query);
+        console.log('🔍 パラメータ:', queryParams);
+
+        const [results] = await connection.execute(query, queryParams);
 
         // 日付フォーマット調整
         const formattedResults = results.map(plan => ({
