@@ -108,8 +108,7 @@ SELECT
          AND sr.status = '入荷予定'
          AND sr.scheduled_date <= ppr.start_date), 0
      ) - 
-     COALESCE(i.reserved_stock, 0) + 
-     COALESCE(ir.reserved_quantity, 0)
+     COALESCE(i.reserved_stock, 0)
     ) as available_stock,
     
     -- 過不足判定
@@ -122,8 +121,7 @@ SELECT
          AND sr.status = '入荷予定'
          AND sr.scheduled_date <= ppr.start_date), 0
       ) - 
-      COALESCE(i.reserved_stock, 0) + 
-      COALESCE(ir.reserved_quantity, 0)
+      COALESCE(i.reserved_stock, 0)
      )
     ) as shortage_quantity,
     
