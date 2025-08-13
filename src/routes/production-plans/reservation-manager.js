@@ -93,6 +93,9 @@ async function createReservations(connection, planId, productCode, plannedQuanti
             console.log(`✅ 予約作成完了 (${reservationResults.length}/${bomResults.length}): ${bomItem.part_code} → ${bomItem.required_quantity}個`);
         }
         
+        // inventoryテーブルのreserved_stockを更新
+        await updateInventoryReservedStock(connection);
+        
         console.log(`🎉 在庫予約作成完了: ${reservationResults.length}件の予約を作成しました`);
         return reservationResults;
         
@@ -147,6 +150,9 @@ async function deleteReservations(connection, planId) {
             'DELETE FROM inventory_reservations WHERE production_plan_id = ?',
             [planId]
         );
+        
+        // inventoryテーブルのreserved_stockを更新
+        await updateInventoryReservedStock(connection);
         
         console.log(`✅ 在庫予約削除完了: ${result.affectedRows}件の予約を削除しました`);
         
@@ -271,7 +277,39 @@ async function getReservationStatus(connection, planId) {
 }
 
 // ==========================================
-// 5. 在庫予約の整合性チェック
+// 5. inventoryテーブルのreserved_stock更新
+// 予約作成・削除時に呼び出される内部関数
+// ==========================================
+
+/**
+ * inventoryテーブルのreserved_stockをinventory_reservationsテーブルから再計算して更新
+ * @param {Object} connection - データベース接続
+ */
+async function updateInventoryReservedStock(connection) {
+    try {
+        console.log('🔄 inventoryテーブルのreserved_stock更新開始');
+        
+        // 全部品の予約済み在庫を再計算して更新
+        const [result] = await connection.execute(
+            `UPDATE inventory i 
+             SET reserved_stock = (
+                 SELECT COALESCE(SUM(ir.reserved_quantity), 0)
+                 FROM inventory_reservations ir 
+                 WHERE ir.part_code = i.part_code
+             ),
+             updated_at = NOW()`
+        );
+        
+        console.log(`✅ reserved_stock更新完了: ${result.affectedRows}件の部品を更新しました`);
+        
+    } catch (error) {
+        console.error('❌ reserved_stock更新エラー:', error);
+        throw error;
+    }
+}
+
+// ==========================================
+// 6. 在庫予約の整合性チェック
 // システム監視・メンテナンス用の関数
 // ==========================================
 
@@ -339,5 +377,6 @@ module.exports = {
     deleteReservations,
     updateReservations,
     getReservationStatus,
-    validateReservationIntegrity
+    validateReservationIntegrity,
+    updateInventoryReservedStock
 };

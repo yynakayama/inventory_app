@@ -318,6 +318,42 @@ function InventoryListContent() {
     setStocktakingItems(updatedItems)
   }
 
+  // 予約データ同期
+  const syncReservations = async () => {
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        throw new Error('認証トークンが見つかりません')
+      }
+
+      const response = await fetch('http://localhost:3000/api/inventory/sync-reservations', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '予約データ同期に失敗しました')
+      }
+
+      const result = await response.json()
+      
+      if (result.success) {
+        alert(`予約データ同期が完了しました（更新: ${result.data.updated_count}件）`)
+        fetchInventoryData() // 在庫データを再取得
+      } else {
+        throw new Error(result.message || '予約データ同期に失敗しました')
+      }
+
+    } catch (err) {
+      console.error('予約データ同期エラー:', err)
+      alert(err instanceof Error ? err.message : '不明なエラーが発生しました')
+    }
+  }
+
   // 棚卸実行
   const executeStocktaking = async () => {
     try {
@@ -437,6 +473,12 @@ function InventoryListContent() {
               className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
             >
               {showStocktaking ? '📋 棚卸を閉じる' : '📋 棚卸'}
+            </button>
+            <button
+              onClick={syncReservations}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              🔄 予約データ同期
             </button>
           </InventoryEditGuard>
           <div className="text-sm text-gray-500">

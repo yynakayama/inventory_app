@@ -44,8 +44,8 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                 p.supplier,
                 p.category,
                 i.current_stock,
-                i.reserved_stock,
-                (i.current_stock - i.reserved_stock) as available_stock,
+                COALESCE(SUM(ir.reserved_quantity), 0) as reserved_stock,
+                (i.current_stock - COALESCE(SUM(ir.reserved_quantity), 0)) as available_stock,
                 i.updated_at,
                 CASE 
                     WHEN i.current_stock <= COALESCE(p.safety_stock, 0) THEN true 
@@ -53,7 +53,11 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                 END as is_low_stock
             FROM inventory i
             LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
+            LEFT JOIN inventory_reservations ir ON i.part_code = ir.part_code
             WHERE 1=1
+            GROUP BY 
+                i.part_code, p.specification, p.safety_stock, p.lead_time_days, 
+                p.supplier, p.category, i.current_stock, i.updated_at
         `;
         
         const params = [];
@@ -107,6 +111,66 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
 });
 
 // ==========================================
+// 在庫予約データ同期API（管理者用）
+// POST /api/inventory/sync-reservations
+// 権限: admin（管理者権限）
+// 目的: inventory_reservationsテーブルからinventoryテーブルのreserved_stockを同期
+// ==========================================
+router.post('/sync-reservations', authenticateToken, requireMaterialAccess, async (req, res) => {
+    let connection;
+    
+    try {
+        console.log(`[${new Date().toISOString()}] 🔄 在庫予約データ同期開始: ユーザー=${req.user.username}`);
+        
+        connection = await mysql.createConnection(dbConfig);
+        await connection.beginTransaction();
+        
+        // inventory_reservationsテーブルからreserved_stockを再計算して更新
+        const [result] = await connection.execute(
+            `UPDATE inventory i 
+             SET reserved_stock = (
+                 SELECT COALESCE(SUM(ir.reserved_quantity), 0)
+                 FROM inventory_reservations ir 
+                 WHERE ir.part_code = i.part_code
+             ),
+             updated_at = NOW()`
+        );
+        
+        await connection.commit();
+        
+        console.log(`✅ 在庫予約データ同期完了: ${result.affectedRows}件の部品を更新しました`);
+        
+        res.json({
+            success: true,
+            message: '在庫予約データの同期が完了しました',
+            data: {
+                updated_count: result.affectedRows,
+                synced_by: req.user.username,
+                synced_at: new Date().toISOString()
+            }
+        });
+
+    } catch (error) {
+        if (connection) {
+            try {
+                await connection.rollback();
+            } catch (rollbackError) {
+                console.error('❌ ロールバックエラー:', rollbackError);
+            }
+        }
+        
+        console.error('❌ 在庫予約データ同期エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '在庫予約データの同期中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// ==========================================
 // 特定部品の在庫詳細取得API
 // GET /api/inventory/:part_code
 // 権限: 全認証ユーザー（参照権限）
@@ -131,8 +195,8 @@ router.get('/:part_code', authenticateToken, requireReadAccess, async (req, res)
                 p.category,
                 p.unit_price,
                 i.current_stock,
-                i.reserved_stock,
-                (i.current_stock - i.reserved_stock) as available_stock,
+                COALESCE(SUM(ir.reserved_quantity), 0) as reserved_stock,
+                (i.current_stock - COALESCE(SUM(ir.reserved_quantity), 0)) as available_stock,
                 i.updated_at,
                 CASE 
                     WHEN i.current_stock <= COALESCE(p.safety_stock, 0) THEN true 
@@ -140,7 +204,11 @@ router.get('/:part_code', authenticateToken, requireReadAccess, async (req, res)
                 END as is_low_stock
             FROM inventory i
             LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
+            LEFT JOIN inventory_reservations ir ON i.part_code = ir.part_code
             WHERE i.part_code = ?
+            GROUP BY 
+                i.part_code, p.specification, p.safety_stock, p.lead_time_days, 
+                p.supplier, p.category, p.unit_price, i.current_stock, i.updated_at
         `;
         
         const [results] = await connection.execute(sql, [part_code]);
