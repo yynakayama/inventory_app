@@ -516,13 +516,6 @@ function ProductionPlansContent() {
     
     if (!confirmed) return
 
-    // 二重確認（重要なデータ削除のため）
-    const doubleConfirmed = window.confirm(
-      `⚠️ 最終確認\n\n本当にこの生産計画を削除しますか？\n\n${planInfo}\n\n削除されたデータは復元できません。`
-    )
-    
-    if (!doubleConfirmed) return
-
     try {
       setLoading(true)
       
