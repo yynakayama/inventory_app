@@ -429,9 +429,52 @@ function ScheduledReceiptsContent() {
                   />
                 </div>
                 
-                <div className="flex items-end">
+                <div className="flex items-end space-x-2">
                   <Button onClick={fetchScheduledReceipts} disabled={isLoading}>
                     {isLoading ? '検索中...' : '検索'}
+                  </Button>
+                  <Button 
+                    variant="secondary" 
+                    onClick={async () => {
+                      setStatusFilter('')
+                      setPartCodeFilter('')
+                      
+                      // フィルターをクリアしてから直接APIを呼び出し
+                      try {
+                        setIsLoading(true)
+                        setError('')
+                        
+                        const token = localStorage.getItem('token')
+                        const url = 'http://localhost:3000/api/scheduled-receipts'
+                        
+                        const response = await fetch(url, {
+                          headers: { 'Authorization': `Bearer ${token}` }
+                        })
+                        
+                        if (!response.ok) {
+                          throw new Error('予定入荷一覧の取得に失敗しました')
+                        }
+                        
+                        const result = await response.json()
+                        
+                        if (result.success && Array.isArray(result.data)) {
+                          setScheduledReceipts(result.data)
+                        } else {
+                          console.error('Unexpected API response:', result)
+                          setScheduledReceipts([])
+                          setError('データの取得に失敗しました')
+                        }
+                      } catch (err) {
+                        console.error('Reset error:', err)
+                        setError(err instanceof Error ? err.message : 'リセット処理エラー')
+                        setScheduledReceipts([])
+                      } finally {
+                        setIsLoading(false)
+                      }
+                    }}
+                    disabled={isLoading}
+                  >
+                    リセット
                   </Button>
                 </div>
               </div>
