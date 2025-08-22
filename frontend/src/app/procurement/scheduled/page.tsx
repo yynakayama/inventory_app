@@ -76,7 +76,7 @@ function ScheduledReceiptsContent() {
   const [orderForm, setOrderForm] = useState({
     partCode: '',
     orderQuantity: '',
-    requestedDate: '',
+    scheduledDate: '',
     remarks: ''
   })
 
@@ -194,7 +194,7 @@ function ScheduledReceiptsContent() {
         body: JSON.stringify({
           part_code: orderForm.partCode.trim(),
           order_quantity: quantity,
-          requested_date: orderForm.requestedDate || null,
+          scheduled_date: orderForm.scheduledDate || null,
           remarks: orderForm.remarks.trim() || null
         })
       })
@@ -208,7 +208,7 @@ function ScheduledReceiptsContent() {
       setOrderForm({
         partCode: '',
         orderQuantity: '',
-        requestedDate: '',
+        scheduledDate: '',
         remarks: ''
       })
       await fetchScheduledReceipts()
@@ -640,14 +640,14 @@ function ScheduledReceiptsContent() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">要求納期</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">入荷予定日</label>
                   <input
                     type="date"
-                    value={orderForm.requestedDate}
-                    onChange={(e) => setOrderForm(prev => ({ ...prev, requestedDate: e.target.value }))}
+                    value={orderForm.scheduledDate}
+                    onChange={(e) => setOrderForm(prev => ({ ...prev, scheduledDate: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <p className="text-xs text-gray-500 mt-1">希望する納期があれば入力してください</p>
+                  <p className="text-xs text-gray-500 mt-1">納期が分かれば入力してください（入力すると納期設定をスキップできます）</p>
                 </div>
 
                 <div>

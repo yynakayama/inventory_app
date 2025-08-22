@@ -46,7 +46,6 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                 sr.order_quantity,
                 sr.scheduled_quantity,
                 sr.order_date,
-                sr.requested_date,
                 sr.scheduled_date,
                 sr.status,
                 sr.remarks,
@@ -179,26 +178,16 @@ router.get('/pending-response', authenticateToken, requireReadAccess, async (req
                 p.category,
                 sr.order_quantity,
                 sr.order_date,
-                sr.requested_date,
                 
                 -- 発注からの経過日数
                 DATEDIFF(CURDATE(), sr.order_date) as days_since_order,
                 
-                -- 要求納期までの残り日数
-                CASE 
-                    WHEN sr.requested_date IS NOT NULL
-                    THEN DATEDIFF(sr.requested_date, CURDATE())
-                    ELSE NULL
-                END as days_until_requested,
-                
                 -- 緊急度判定
                 CASE 
-                    WHEN sr.requested_date IS NOT NULL AND sr.requested_date < CURDATE()
-                    THEN '要求納期超過'
-                    WHEN sr.requested_date IS NOT NULL AND DATEDIFF(sr.requested_date, CURDATE()) <= 7
-                    THEN '緊急回答必要'
-                    WHEN DATEDIFF(CURDATE(), sr.order_date) >= 7
+                    WHEN DATEDIFF(CURDATE(), sr.order_date) >= 14
                     THEN '長期回答待ち'
+                    WHEN DATEDIFF(CURDATE(), sr.order_date) >= 7
+                    THEN '回答催促必要'
                     ELSE '通常'
                 END as urgency_level,
                 
@@ -213,12 +202,10 @@ router.get('/pending-response', authenticateToken, requireReadAccess, async (req
             ORDER BY 
                 -- 緊急度順
                 CASE 
-                    WHEN sr.requested_date IS NOT NULL AND sr.requested_date < CURDATE() THEN 1
-                    WHEN sr.requested_date IS NOT NULL AND DATEDIFF(sr.requested_date, CURDATE()) <= 7 THEN 2
-                    WHEN DATEDIFF(CURDATE(), sr.order_date) >= 7 THEN 3
-                    ELSE 4
+                    WHEN DATEDIFF(CURDATE(), sr.order_date) >= 14 THEN 1
+                    WHEN DATEDIFF(CURDATE(), sr.order_date) >= 7 THEN 2
+                    ELSE 3
                 END,
-                sr.requested_date ASC,
                 sr.order_date ASC
         `;
 
@@ -229,9 +216,8 @@ router.get('/pending-response', authenticateToken, requireReadAccess, async (req
             total_pending_orders: results.length,
             total_estimated_amount: results.reduce((sum, item) => sum + parseFloat(item.estimated_amount || 0), 0),
             urgency_breakdown: {
-                overdue: results.filter(r => r.urgency_level === '要求納期超過').length,
-                urgent: results.filter(r => r.urgency_level === '緊急回答必要').length,
                 long_waiting: results.filter(r => r.urgency_level === '長期回答待ち').length,
+                follow_up_needed: results.filter(r => r.urgency_level === '回答催促必要').length,
                 normal: results.filter(r => r.urgency_level === '通常').length
             },
             avg_waiting_days: results.length > 0 

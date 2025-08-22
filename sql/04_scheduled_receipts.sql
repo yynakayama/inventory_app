@@ -15,7 +15,6 @@ CREATE TABLE scheduled_receipts (
     
     -- 日付情報
     order_date DATE NOT NULL,                       -- 発注日
-    requested_date DATE NULL,                       -- 希望納期
     scheduled_date DATE NULL,                       -- 予定入荷日（納期回答時に設定）
     
     -- ステータス管理
@@ -84,14 +83,13 @@ INSERT INTO scheduled_receipts (
     supplier, 
     order_quantity, 
     order_date, 
-    requested_date,
     remarks
 ) VALUES 
 -- SUSボルトの発注（納期回答待ち）
-('SUS304-M6-20-HEX', 'ボルト商事株式会社', 500, '2024-07-15', '2024-07-25', '緊急発注'),
+('SUS304-M6-20-HEX', 'ボルト商事株式会社', 500, '2024-07-15', '緊急発注'),
 
 -- 樹脂部品の発注（納期回答済み）
-('LED-WHITE-5MM', '東京電子商事', 200, '2024-07-10', '2024-07-20', '定期発注');
+('LED-WHITE-5MM', '東京電子商事', 200, '2024-07-10', '定期発注');
 
 -- 納期回答例：予定数量・予定日を更新してステータス変更
 UPDATE scheduled_receipts 

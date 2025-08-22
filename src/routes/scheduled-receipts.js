@@ -71,7 +71,6 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                 sr.order_quantity,
                 sr.scheduled_quantity,
                 sr.order_date,
-                sr.requested_date,
                 sr.scheduled_date,
                 sr.status,
                 sr.remarks,
@@ -186,6 +185,11 @@ router.post('/', authenticateToken, requireMaterialAccess, async (req, res) => {
             });
         }
         
+        // undefinedパラメータをnullに変換
+        const safeRequestedDate = requested_date || null;
+        const safeRemarks = remarks || null;
+        const safeUsername = req.user?.username || null;
+        
         connection = await mysql.createConnection(dbConfig);
         
         // まず部品マスタから仕入先情報を取得
@@ -210,11 +214,10 @@ router.post('/', authenticateToken, requireMaterialAccess, async (req, res) => {
                 supplier,
                 order_quantity,
                 order_date,
-                requested_date,
                 remarks,
                 created_by
-            ) VALUES (?, ?, ?, CURDATE(), ?, ?, ?)
-        `, [part_code, supplier, order_quantity, requested_date, remarks, req.user.username]);
+            ) VALUES (?, ?, ?, CURDATE(), ?, ?)
+        `, [part_code, supplier, order_quantity, safeRemarks, safeUsername]);
         
         // 登録された発注情報を取得
         const [newOrder] = await connection.execute(`
