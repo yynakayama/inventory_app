@@ -5,32 +5,18 @@ import { useRouter } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
 import PermissionGuard, { ProcurementEditGuard, usePermissionCheck } from '@/components/guards/PermissionGuard'
 import Button from '@/components/ui/Button'
+import Modal from '@/components/ui/Modal'
 import PartCodeSelector from '@/components/ui/PartCodeSelector'
+import StatusBadge from '@/components/procurement/StatusBadge'
+import SearchFilters from '@/components/procurement/SearchFilters'
+import {
+  ScheduledReceipt,
+  ReceiptForm,
+  DeliveryForm,
+  OrderForm
+} from '@/types/procurement'
 
-// 予定入荷データの型定義
-interface ScheduledReceipt {
-  id: number
-  order_no: string
-  part_code: string
-  specification: string
-  supplier: string
-  order_quantity: number
-  scheduled_quantity: number | null
-  order_date: string
-  requested_date: string | null
-  scheduled_date: string | null
-  status: '納期回答待ち' | '入荷予定' | '入荷済み' | 'キャンセル'
-  remarks: string | null
-  current_stock: number
-  reserved_stock: number
-}
-
-// 入荷処理フォームの型定義
-interface ReceiptForm {
-  actualQuantity: string
-  receiptDate: string
-  remarks: string
-}
+// インポートした型定義を使用
 
 export default function ScheduledReceiptsPage() {
   return (
@@ -44,6 +30,8 @@ export default function ScheduledReceiptsPage() {
 
 function ScheduledReceiptsContent() {
   const router = useRouter()
+  const { canEditProcurement } = usePermissionCheck()
+  const canEdit = canEditProcurement()
   
   // 状態管理
   const [scheduledReceipts, setScheduledReceipts] = useState<ScheduledReceipt[]>([])
@@ -127,6 +115,45 @@ function ScheduledReceiptsContent() {
     } catch (err) {
       console.error('fetchScheduledReceipts error:', err)
       setError(err instanceof Error ? err.message : '予定入荷一覧の取得エラー')
+      setScheduledReceipts([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // リセット機能
+  const handleReset = async () => {
+    setStatusFilter('')
+    setPartCodeFilter('')
+    
+    // フィルターをクリアしてから直接APIを呼び出し
+    try {
+      setIsLoading(true)
+      setError('')
+      
+      const token = localStorage.getItem('token')
+      const url = 'http://localhost:3000/api/scheduled-receipts'
+      
+      const response = await fetch(url, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      
+      if (!response.ok) {
+        throw new Error('予定入荷一覧の取得に失敗しました')
+      }
+      
+      const result = await response.json()
+      
+      if (result.success && Array.isArray(result.data)) {
+        setScheduledReceipts(result.data)
+      } else {
+        console.error('Unexpected API response:', result)
+        setScheduledReceipts([])
+        setError('データの取得に失敗しました')
+      }
+    } catch (err) {
+      console.error('Reset error:', err)
+      setError(err instanceof Error ? err.message : 'リセット処理エラー')
       setScheduledReceipts([])
     } finally {
       setIsLoading(false)
@@ -348,20 +375,7 @@ function ScheduledReceiptsContent() {
   }
 
   // ステータス表示用のスタイル
-  const getStatusStyle = (status: string) => {
-    switch (status) {
-      case '納期回答待ち':
-        return 'bg-orange-100 text-orange-800'
-      case '入荷予定':
-        return 'bg-blue-100 text-blue-800'
-      case '入荷済み':
-        return 'bg-green-100 text-green-800'
-      case 'キャンセル':
-        return 'bg-gray-100 text-gray-800'
-      default:
-        return 'bg-gray-100 text-gray-800'
-    }
-  }
+  // getStatusStyle関数はStatusBadgeコンポーネントに移動済み
 
   // フィルタリングされた予定入荷一覧
   const filteredReceipts = scheduledReceipts.filter(receipt => {
@@ -386,101 +400,16 @@ function ScheduledReceiptsContent() {
           </div>
         )}
 
-        {/* フィルター・操作バー */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-          <div className="px-6 py-4">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              {/* 新規発注ボタン */}
-              <div>
-                <ProcurementEditGuard>
-                  <Button
-                    onClick={() => setShowOrderModal(true)}
-                    className="bg-blue-600 hover:bg-blue-700"
-                  >
-                    📝 新規発注
-                  </Button>
-                </ProcurementEditGuard>
-              </div>
-              
-              {/* フィルター */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 lg:max-w-2xl">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">ステータス</label>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">全て</option>
-                    <option value="納期回答待ち">納期回答待ち</option>
-                    <option value="入荷予定">入荷予定</option>
-                    <option value="入荷済み">入荷済み</option>
-                    <option value="キャンセル">キャンセル</option>
-                  </select>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">部品コード</label>
-                  <PartCodeSelector
-                    value={partCodeFilter}
-                    onChange={setPartCodeFilter}
-                    placeholder="部品コードで検索"
-                    disabled={isLoading}
-                  />
-                </div>
-                
-                <div className="flex items-end space-x-2">
-                  <Button onClick={fetchScheduledReceipts} disabled={isLoading}>
-                    {isLoading ? '検索中...' : '検索'}
-                  </Button>
-                  <Button 
-                    variant="secondary" 
-                    onClick={async () => {
-                      setStatusFilter('')
-                      setPartCodeFilter('')
-                      
-                      // フィルターをクリアしてから直接APIを呼び出し
-                      try {
-                        setIsLoading(true)
-                        setError('')
-                        
-                        const token = localStorage.getItem('token')
-                        const url = 'http://localhost:3000/api/scheduled-receipts'
-                        
-                        const response = await fetch(url, {
-                          headers: { 'Authorization': `Bearer ${token}` }
-                        })
-                        
-                        if (!response.ok) {
-                          throw new Error('予定入荷一覧の取得に失敗しました')
-                        }
-                        
-                        const result = await response.json()
-                        
-                        if (result.success && Array.isArray(result.data)) {
-                          setScheduledReceipts(result.data)
-                        } else {
-                          console.error('Unexpected API response:', result)
-                          setScheduledReceipts([])
-                          setError('データの取得に失敗しました')
-                        }
-                      } catch (err) {
-                        console.error('Reset error:', err)
-                        setError(err instanceof Error ? err.message : 'リセット処理エラー')
-                        setScheduledReceipts([])
-                      } finally {
-                        setIsLoading(false)
-                      }
-                    }}
-                    disabled={isLoading}
-                  >
-                    リセット
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* 検索フィルター */}
+        <SearchFilters
+          statusFilter={statusFilter}
+          partCodeFilter={partCodeFilter}
+          onStatusChange={setStatusFilter}
+          onPartCodeChange={setPartCodeFilter}
+          onReset={handleReset}
+          onNewOrder={() => setShowOrderModal(true)}
+          canEdit={canEdit}
+        />
 
         {/* 調達管理テーブル */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
@@ -587,9 +516,7 @@ function ScheduledReceiptsContent() {
                         {receipt.scheduled_date || '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2 py-1 text-xs rounded-full ${getStatusStyle(receipt.status)}`}>
-                          {receipt.status}
-                        </span>
+                        <StatusBadge status={receipt.status} />
                       </td>
                     </tr>
                   ))}
