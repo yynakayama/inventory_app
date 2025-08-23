@@ -27,27 +27,15 @@ export function Header() {
       label: '在庫管理',
       href: '/inventory',
       roles: ['admin', 'production_manager', 'material_staff', 'viewer'], // 全ユーザー
-      children: [
-        { 
-          label: '在庫一覧', 
-          href: '/inventory/list', 
-          roles: ['admin', 'production_manager', 'material_staff', 'viewer'] 
-        },
-        { 
-          label: '取引履歴', 
-          href: '/inventory/transactions', 
-          roles: ['admin', 'production_manager', 'material_staff', 'viewer'] 
-        }
-      ]
     },
     {
       label: '生産計画',
-      href: '/production/plans',
+      href: '/production',
       roles: ['admin', 'production_manager', 'material_staff', 'viewer'] // 全ユーザー（閲覧可能）
     },
     {
       label: '調達管理',
-      href: '/procurement/scheduled',
+      href: '/procurement',
       roles: ['admin', 'production_manager', 'material_staff', 'viewer'] // 全ユーザー（閲覧可能）
     },
     {
