@@ -175,7 +175,7 @@ router.post('/', authenticateToken, requireMaterialAccess, async (req, res) => {
     let connection;
     
     try {
-        const { part_code, order_quantity, requested_date, remarks } = req.body;
+        const { part_code, order_quantity, requested_date, scheduled_date, remarks } = req.body;
         
         // バリデーション
         if (!part_code || !order_quantity || order_quantity <= 0) {
@@ -187,8 +187,13 @@ router.post('/', authenticateToken, requireMaterialAccess, async (req, res) => {
         
         // undefinedパラメータをnullに変換
         const safeRequestedDate = requested_date || null;
+        const safeScheduledDate = scheduled_date || null;
         const safeRemarks = remarks || null;
         const safeUsername = req.user?.username || null;
+        
+        // scheduled_dateが提供された場合のステータス判定
+        const initialStatus = safeScheduledDate ? '入荷予定' : '納期回答待ち';
+        const scheduledQuantity = safeScheduledDate ? order_quantity : null;
         
         connection = await mysql.createConnection(dbConfig);
         
@@ -213,11 +218,14 @@ router.post('/', authenticateToken, requireMaterialAccess, async (req, res) => {
                 part_code,
                 supplier,
                 order_quantity,
+                scheduled_quantity,
                 order_date,
+                scheduled_date,
+                status,
                 remarks,
                 created_by
-            ) VALUES (?, ?, ?, CURDATE(), ?, ?)
-        `, [part_code, supplier, order_quantity, safeRemarks, safeUsername]);
+            ) VALUES (?, ?, ?, ?, CURDATE(), ?, ?, ?, ?)
+        `, [part_code, supplier, order_quantity, scheduledQuantity, safeScheduledDate, initialStatus, safeRemarks, safeUsername]);
         
         // 登録された発注情報を取得
         const [newOrder] = await connection.execute(`
