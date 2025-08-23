@@ -17,6 +17,49 @@ interface InventoryItem {
   supplier: string | null
   category: string | null
   is_low_stock: boolean
+  lead_time_days?: number
+  unit_price?: number
+}
+
+// 部品詳細データの型定義
+interface PartDetail {
+  part_code: string
+  specification: string | null
+  category: string | null
+  supplier: string | null
+  lead_time_days: number
+  unit_price: number
+  safety_stock: number
+  current_stock: number
+  reserved_stock: number
+  available_stock: number
+  created_at: string
+  updated_at: string
+}
+
+// 履歴データの型定義
+interface InventoryHistory {
+  id: number
+  part_code: string
+  transaction_type: 'receipt' | 'issue' | 'adjustment' | 'stocktaking'
+  quantity: number
+  before_quantity?: number
+  after_quantity?: number
+  before_stock?: number
+  after_stock?: number
+  supplier?: string
+  remarks?: string
+  created_at: string
+  transaction_date?: string
+  created_by: string
+}
+
+// 在庫調整フォームの型定義
+interface AdjustmentForm {
+  transaction_type: 'receipt' | 'issue'
+  quantity: string
+  supplier: string
+  remarks: string
 }
 
 // カテゴリデータの型定義
@@ -191,6 +234,24 @@ function InventoryListContent() {
   const [stocktakingLoading, setStocktakingLoading] = useState(false)
   const [stocktakingError, setStocktakingError] = useState<string | null>(null)
 
+  // 部品詳細モーダルの状態
+  const [showDetailModal, setShowDetailModal] = useState(false)
+  const [selectedPartCode, setSelectedPartCode] = useState<string>('')
+  const [partDetail, setPartDetail] = useState<PartDetail | null>(null)
+  const [partHistory, setPartHistory] = useState<InventoryHistory[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<'detail' | 'history' | 'adjustment'>('detail')
+  
+  // 在庫調整フォームの状態
+  const [adjustmentForm, setAdjustmentForm] = useState<AdjustmentForm>({
+    transaction_type: 'receipt',
+    quantity: '',
+    supplier: '',
+    remarks: ''
+  })
+  const [adjustmentLoading, setAdjustmentLoading] = useState(false)
+
   // カテゴリデータ取得（認証不要）
   useEffect(() => {
     const fetchCategories = async () => {
@@ -351,6 +412,144 @@ function InventoryListContent() {
     } catch (err) {
       console.error('予約データ同期エラー:', err)
       alert(err instanceof Error ? err.message : '不明なエラーが発生しました')
+    }
+  }
+
+  // 部品詳細モーダルを開く
+  const openPartDetailModal = async (partCode: string) => {
+    setSelectedPartCode(partCode)
+    setShowDetailModal(true)
+    setActiveTab('detail')
+    await fetchPartDetail(partCode)
+  }
+
+  // 部品詳細データを取得
+  const fetchPartDetail = async (partCode: string) => {
+    try {
+      setDetailLoading(true)
+      const token = localStorage.getItem('token')
+      
+      const response = await fetch(`http://localhost:3000/api/inventory/${partCode}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      
+      if (!response.ok) {
+        throw new Error('部品詳細の取得に失敗しました')
+      }
+      
+      const result = await response.json()
+      if (result.success) {
+        setPartDetail(result.data)
+      } else {
+        throw new Error(result.message || '部品詳細の取得に失敗しました')
+      }
+    } catch (err) {
+      console.error('部品詳細取得エラー:', err)
+      setError(err instanceof Error ? err.message : '部品詳細取得エラー')
+    } finally {
+      setDetailLoading(false)
+    }
+  }
+
+  // 履歴データを取得
+  const fetchPartHistory = async (partCode: string) => {
+    try {
+      setHistoryLoading(true)
+      const token = localStorage.getItem('token')
+      
+      const response = await fetch(`http://localhost:3000/api/inventory/${partCode}/history`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      
+      if (!response.ok) {
+        throw new Error('履歴データの取得に失敗しました')
+      }
+      
+      const result = await response.json()
+      if (result.success) {
+        setPartHistory(result.data || [])
+      } else {
+        throw new Error(result.message || '履歴データの取得に失敗しました')
+      }
+    } catch (err) {
+      console.error('履歴取得エラー:', err)
+      setError(err instanceof Error ? err.message : '履歴取得エラー')
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  // 在庫調整実行
+  const executeAdjustment = async () => {
+    if (!selectedPartCode) return
+    
+    const quantity = parseInt(adjustmentForm.quantity)
+    if (!quantity || quantity <= 0) {
+      setError('数量は1以上で入力してください')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `以下の内容で${adjustmentForm.transaction_type === 'receipt' ? '入庫' : '出庫'}処理を実行しますか？\n\n` +
+      `部品コード: ${selectedPartCode}\n` +
+      `数量: ${quantity}個\n` +
+      `${adjustmentForm.supplier ? `仕入先: ${adjustmentForm.supplier}\n` : ''}` +
+      `${adjustmentForm.remarks ? `備考: ${adjustmentForm.remarks}\n` : ''}` +
+      `\n※この処理は取り消しできません。`
+    )
+
+    if (!confirmed) return
+
+    try {
+      setAdjustmentLoading(true)
+      const token = localStorage.getItem('token')
+      
+      const endpoint = adjustmentForm.transaction_type === 'receipt' ? 'receipt' : 'issue'
+      const response = await fetch(`http://localhost:3000/api/inventory/${selectedPartCode}/${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          quantity,
+          supplier: adjustmentForm.supplier || null,
+          remarks: adjustmentForm.remarks || null
+        })
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '在庫調整に失敗しました')
+      }
+      
+      const result = await response.json()
+      
+      alert(
+        `${adjustmentForm.transaction_type === 'receipt' ? '入庫' : '出庫'}処理が完了しました！\n\n` +
+        `部品コード: ${selectedPartCode}\n` +
+        `処理前在庫: ${result.old_stock}個\n` +
+        `処理後在庫: ${result.new_stock}個\n` +
+        `${adjustmentForm.transaction_type === 'receipt' ? '入庫' : '出庫'}数量: ${quantity}個`
+      )
+      
+      // フォームリセット
+      setAdjustmentForm({
+        transaction_type: 'receipt',
+        quantity: '',
+        supplier: '',
+        remarks: ''
+      })
+      
+      // データ再取得
+      await fetchInventoryData()
+      await fetchPartDetail(selectedPartCode)
+      
+    } catch (err) {
+      console.error('在庫調整エラー:', err)
+      setError(err instanceof Error ? err.message : '在庫調整エラー')
+    } finally {
+      setAdjustmentLoading(false)
     }
   }
 
@@ -693,7 +892,10 @@ function InventoryListContent() {
                 {inventoryData.map((item) => (
                   <tr key={item.part_code} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm font-medium text-gray-900">
+                      <div 
+                        className="text-sm font-medium text-blue-600 hover:text-blue-800 cursor-pointer"
+                        onClick={() => openPartDetailModal(item.part_code)}
+                      >
                         {item.part_code}
                       </div>
                       {item.category && (
@@ -765,6 +967,368 @@ function InventoryListContent() {
           </div>
         )}
       </div>
+
+      {/* 部品詳細モーダル */}
+      {showDetailModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+            {/* モーダルヘッダー */}
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex justify-between items-center">
+                <h3 className="text-lg font-semibold text-gray-900">
+                  📦 部品詳細: {selectedPartCode}
+                </h3>
+                <button
+                  onClick={() => setShowDetailModal(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* タブナビゲーション */}
+            <div className="px-6 py-3 border-b border-gray-200">
+              <div className="flex space-x-4">
+                <button
+                  onClick={() => setActiveTab('detail')}
+                  className={`px-3 py-2 text-sm font-medium rounded-md ${
+                    activeTab === 'detail'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  📋 詳細情報
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveTab('history')
+                    if (partHistory.length === 0) {
+                      fetchPartHistory(selectedPartCode)
+                    }
+                  }}
+                  className={`px-3 py-2 text-sm font-medium rounded-md ${
+                    activeTab === 'history'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  📊 入出庫履歴
+                </button>
+                <InventoryEditGuard>
+                  <button
+                    onClick={() => setActiveTab('adjustment')}
+                    className={`px-3 py-2 text-sm font-medium rounded-md ${
+                      activeTab === 'adjustment'
+                        ? 'bg-blue-100 text-blue-700'
+                        : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                  >
+                    ⚖️ 在庫調整
+                  </button>
+                </InventoryEditGuard>
+              </div>
+            </div>
+
+            {/* タブコンテンツ */}
+            <div className="px-6 py-4 overflow-y-auto max-h-[60vh]">
+              {/* 詳細情報タブ */}
+              {activeTab === 'detail' && (
+                <div>
+                  {detailLoading ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                      <p className="text-gray-600 mt-2">読み込み中...</p>
+                    </div>
+                  ) : partDetail ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* 基本情報 */}
+                      <div className="space-y-4">
+                        <h4 className="text-md font-semibold text-gray-900">基本情報</h4>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">部品コード</label>
+                            <div className="mt-1 text-sm text-gray-900">{partDetail.part_code}</div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">規格・仕様</label>
+                            <div className="mt-1 text-sm text-gray-900">{partDetail.specification || '未設定'}</div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">カテゴリ</label>
+                            <div className="mt-1 text-sm text-gray-900">{partDetail.category || '未設定'}</div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">仕入先</label>
+                            <div className="mt-1 text-sm text-gray-900">{partDetail.supplier || '未設定'}</div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">リードタイム</label>
+                            <div className="mt-1 text-sm text-gray-900">{partDetail.lead_time_days}日</div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">単価</label>
+                            <div className="mt-1 text-sm text-gray-900">¥{partDetail.unit_price?.toLocaleString() || '未設定'}</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 在庫情報 */}
+                      <div className="space-y-4">
+                        <h4 className="text-md font-semibold text-gray-900">在庫情報</h4>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">現在庫数</label>
+                            <div className="mt-1 text-lg font-bold text-gray-900">{partDetail.current_stock.toLocaleString()}個</div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">予約済数</label>
+                            <div className="mt-1 text-sm text-gray-600">{partDetail.reserved_stock.toLocaleString()}個</div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">利用可能数</label>
+                            <div className={`mt-1 text-lg font-bold ${
+                              partDetail.available_stock < 0 ? 'text-red-600' : 'text-green-600'
+                            }`}>
+                              {partDetail.available_stock.toLocaleString()}個
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">安全在庫</label>
+                            <div className="mt-1 text-sm text-yellow-600">{partDetail.safety_stock.toLocaleString()}個</div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700">最終更新</label>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {new Date(partDetail.updated_at).toLocaleString('ja-JP')}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      部品詳細の取得に失敗しました
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 履歴タブ */}
+              {activeTab === 'history' && (
+                <div>
+                  <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-md font-semibold text-gray-900">入出庫履歴</h4>
+                    <button
+                      onClick={() => fetchPartHistory(selectedPartCode)}
+                      className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                    >
+                      🔄 更新
+                    </button>
+                  </div>
+                  
+                  {historyLoading ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                      <p className="text-gray-600 mt-2">読み込み中...</p>
+                    </div>
+                  ) : partHistory.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      入出庫履歴がありません
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-200">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">日時</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">処理</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">数量</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">処理前</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">処理後</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">仕入先</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">作業者</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {partHistory.map((record) => (
+                            <tr key={record.id} className="hover:bg-gray-50">
+                              <td className="px-3 py-2 text-xs text-gray-900">
+                                {new Date(record.created_at || record.transaction_date || '').toLocaleString('ja-JP')}
+                              </td>
+                              <td className="px-3 py-2 text-xs">
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                  record.transaction_type === 'receipt' ? 'bg-green-100 text-green-800' :
+                                  record.transaction_type === 'issue' ? 'bg-red-100 text-red-800' :
+                                  record.transaction_type === 'adjustment' ? 'bg-blue-100 text-blue-800' :
+                                  'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {record.transaction_type === 'receipt' ? '入庫' :
+                                   record.transaction_type === 'issue' ? '出庫' :
+                                   record.transaction_type === 'adjustment' ? '調整' :
+                                   record.transaction_type === 'stocktaking' ? '棚卸' : record.transaction_type}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-xs text-right font-medium">
+                                {record.quantity > 0 ? '+' : ''}{(record.quantity || 0).toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-right text-gray-600">
+                                {(record.before_quantity || record.before_stock || 0).toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-right font-medium">
+                                {(record.after_quantity || record.after_stock || 0).toLocaleString()}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-600">
+                                {record.supplier || '-'}
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-600">
+                                {record.created_by}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 在庫調整タブ */}
+              {activeTab === 'adjustment' && (
+                <InventoryEditGuard>
+                  <div>
+                    <h4 className="text-md font-semibold text-gray-900 mb-4">在庫調整</h4>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* 調整フォーム */}
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            処理種別
+                          </label>
+                          <div className="flex space-x-4">
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                value="receipt"
+                                checked={adjustmentForm.transaction_type === 'receipt'}
+                                onChange={(e) => setAdjustmentForm(prev => ({ ...prev, transaction_type: e.target.value as 'receipt' | 'issue' }))}
+                                className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="ml-2 text-sm text-gray-700">📥 入庫</span>
+                            </label>
+                            <label className="flex items-center">
+                              <input
+                                type="radio"
+                                value="issue"
+                                checked={adjustmentForm.transaction_type === 'issue'}
+                                onChange={(e) => setAdjustmentForm(prev => ({ ...prev, transaction_type: e.target.value as 'receipt' | 'issue' }))}
+                                className="h-4 w-4 text-blue-600 focus:ring-blue-500"
+                              />
+                              <span className="ml-2 text-sm text-gray-700">📤 出庫</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            数量 <span className="text-red-500">*</span>
+                          </label>
+                          <div className="flex">
+                            <input
+                              type="number"
+                              min="1"
+                              value={adjustmentForm.quantity}
+                              onChange={(e) => setAdjustmentForm(prev => ({ ...prev, quantity: e.target.value }))}
+                              className="flex-1 px-3 py-2 border border-gray-300 rounded-l-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="1"
+                            />
+                            <span className="px-3 py-2 bg-gray-50 border border-l-0 border-gray-300 rounded-r-md text-gray-600">個</span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            仕入先
+                          </label>
+                          <input
+                            type="text"
+                            value={adjustmentForm.supplier}
+                            onChange={(e) => setAdjustmentForm(prev => ({ ...prev, supplier: e.target.value }))}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder={adjustmentForm.transaction_type === 'receipt' ? '入庫元仕入先' : '出庫先（省略可）'}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            備考
+                          </label>
+                          <textarea
+                            value={adjustmentForm.remarks}
+                            onChange={(e) => setAdjustmentForm(prev => ({ ...prev, remarks: e.target.value }))}
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="調整理由や備考があれば入力してください"
+                          />
+                        </div>
+
+                        <button
+                          onClick={executeAdjustment}
+                          disabled={adjustmentLoading || !adjustmentForm.quantity}
+                          className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        >
+                          {adjustmentLoading ? '処理中...' : 
+                           `${adjustmentForm.transaction_type === 'receipt' ? '📥 入庫実行' : '📤 出庫実行'}`}
+                        </button>
+                      </div>
+
+                      {/* 現在の在庫状況 */}
+                      <div className="space-y-4">
+                        <h5 className="text-sm font-semibold text-gray-900">現在の在庫状況</h5>
+                        {partDetail && (
+                          <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">現在庫数:</span>
+                              <span className="text-sm font-medium text-gray-900">{partDetail.current_stock.toLocaleString()}個</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">予約済数:</span>
+                              <span className="text-sm text-gray-600">{partDetail.reserved_stock.toLocaleString()}個</span>
+                            </div>
+                            <div className="flex justify-between border-t pt-2">
+                              <span className="text-sm font-medium text-gray-700">利用可能数:</span>
+                              <span className={`text-sm font-bold ${
+                                partDetail.available_stock < 0 ? 'text-red-600' : 'text-green-600'
+                              }`}>
+                                {partDetail.available_stock.toLocaleString()}個
+                              </span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-sm text-gray-600">安全在庫:</span>
+                              <span className="text-sm text-yellow-600">{partDetail.safety_stock.toLocaleString()}個</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </InventoryEditGuard>
+              )}
+            </div>
+
+            {/* モーダルフッター */}
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+              <button
+                onClick={() => setShowDetailModal(false)}
+                className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
+              >
+                閉じる
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
