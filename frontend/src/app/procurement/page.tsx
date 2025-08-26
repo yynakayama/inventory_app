@@ -381,6 +381,12 @@ function ScheduledReceiptsContent() {
   const filteredReceipts = scheduledReceipts.filter(receipt => {
     if (statusFilter && receipt.status !== statusFilter) return false
     if (partCodeFilter && !receipt.part_code.toLowerCase().includes(partCodeFilter.toLowerCase())) return false
+    
+    // 入荷処理済みの行は、検索で明示的に「入荷済み」を選択した場合のみ表示
+    if (receipt.status === '入荷済み' && statusFilter !== '入荷済み') {
+      return false
+    }
+    
     return true
   })
 

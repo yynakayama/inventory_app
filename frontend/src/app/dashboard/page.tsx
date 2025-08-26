@@ -179,8 +179,8 @@ function DashboardContent() {
   }, [])
 
   // ナビゲーション関数
-  const navigateToInventoryList = () => router.push('/inventory/list')
-  const navigateToProcurement = () => router.push('/procurement/scheduled')
+  const navigateToInventoryList = () => router.push('/inventory')
+  const navigateToProcurement = () => router.push('/procurement')
   const navigateToReports = () => router.push('/reports')
 
   // ローディング状態
@@ -490,9 +490,9 @@ function DashboardContent() {
                 >
                   <div className="flex items-center gap-3 mb-2">
                     <span className="text-2xl">📦</span>
-                    <div className="font-medium text-gray-900">在庫確認</div>
+                    <div className="font-medium text-gray-900">部材管理</div>
                   </div>
-                  <div className="text-sm text-gray-500">現在の在庫状況を確認</div>
+                  <div className="text-sm text-gray-500">在庫・履歴・数量調整</div>
                 </button>
               </PermissionGuard>
 
