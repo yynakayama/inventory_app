@@ -171,18 +171,22 @@ ON DUPLICATE KEY UPDATE
     remarks = VALUES(remarks),
     updated_at = CURRENT_TIMESTAMP;
 
--- 6. 在庫予約テーブル初期化（テスト用）
+-- 6. 在庫予約テーブル初期化（production_plan_requirementsから自動生成）
 -- 注意: 実際の運用では、APIを通じて自動的に予約データが作成されます
-INSERT INTO inventory_reservations (production_plan_id, part_code, reserved_quantity, remarks, created_by) VALUES
-(1, 'LED-RED-5MM-20MA', 20, 'V5000生産計画1用予約', 'test_user'),
-(1, 'LED-GREEN-5MM-20MA', 10, 'V5000生産計画1用予約', 'test_user'),
-(1, 'RES-1K-1/4W-5PCT', 40, 'V5000生産計画1用予約', 'test_user')
-ON DUPLICATE KEY UPDATE
-    reserved_quantity = VALUES(reserved_quantity),
-    remarks = VALUES(remarks),
-    updated_at = CURRENT_TIMESTAMP;
+DELETE FROM inventory_reservations;
 
--- 7. 在庫テーブルの予約在庫数を更新（テスト用）
+INSERT INTO inventory_reservations (production_plan_id, part_code, reserved_quantity, remarks, created_by)
+SELECT 
+    ppr.plan_id,
+    ppr.part_code,
+    ppr.required_quantity,
+    CONCAT(pp.product_code, '生産計画', ppr.plan_id, '用予約'),
+    'test_user'
+FROM production_plan_requirements ppr
+JOIN production_plans pp ON ppr.plan_id = pp.id
+WHERE pp.status IN ('計画', '生産中');
+
+-- 7. 在庫テーブルの予約在庫数を更新（全部品対象）
 -- 注意: 実際の運用では、APIを通じて自動的に更新されます
 UPDATE inventory SET 
     reserved_stock = (
@@ -190,17 +194,35 @@ UPDATE inventory SET
         FROM inventory_reservations ir 
         WHERE ir.part_code = inventory.part_code
     ),
-    updated_at = CURRENT_TIMESTAMP
-WHERE part_code IN (
-    SELECT DISTINCT part_code FROM inventory_reservations
-);
+    updated_at = CURRENT_TIMESTAMP;
 
 -- 8. データ確認用クエリ実行
 SELECT 
     '生産計画関連テーブル作成完了' as status,
     (SELECT COUNT(*) FROM production_plans) as production_plans_count,
+    (SELECT COUNT(*) FROM production_plan_requirements WHERE plan_status IN ('計画', '生産中')) as requirements_count,
     (SELECT COUNT(*) FROM inventory_reservations) as reservations_count,
     NOW() as completed_time;
+
+-- 8-2. 整合性確認クエリ
+SELECT '予約データ整合性確認' as check_type;
+
+-- production_plan_requirementsとinventory_reservationsの整合性確認
+SELECT 
+    '要求数量と予約数量の比較' as comparison_type,
+    ppr.plan_id,
+    ppr.part_code,
+    ppr.required_quantity,
+    COALESCE(ir.reserved_quantity, 0) as reserved_quantity,
+    CASE 
+        WHEN ppr.required_quantity = COALESCE(ir.reserved_quantity, 0) THEN 'OK'
+        ELSE 'NG'
+    END as status
+FROM production_plan_requirements ppr
+LEFT JOIN inventory_reservations ir ON ppr.plan_id = ir.production_plan_id AND ppr.part_code = ir.part_code
+JOIN production_plans pp ON ppr.plan_id = pp.id
+WHERE pp.status IN ('計画', '生産中')
+ORDER BY ppr.plan_id, ppr.part_code;
 
 -- 9. VIEW動作確認用クエリ
 SELECT 'VIEW動作確認' as check_type;

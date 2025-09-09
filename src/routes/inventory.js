@@ -44,8 +44,8 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                 p.supplier,
                 p.category,
                 i.current_stock,
-                COALESCE(SUM(ir.reserved_quantity), 0) as reserved_stock,
-                (i.current_stock - COALESCE(SUM(ir.reserved_quantity), 0)) as available_stock,
+                i.reserved_stock,
+                (i.current_stock - i.reserved_stock) as available_stock,
                 i.updated_at,
                 CASE 
                     WHEN i.current_stock <= COALESCE(p.safety_stock, 0) THEN true 
@@ -53,11 +53,7 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                 END as is_low_stock
             FROM inventory i
             LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
-            LEFT JOIN inventory_reservations ir ON i.part_code = ir.part_code
             WHERE 1=1
-            GROUP BY 
-                i.part_code, p.specification, p.safety_stock, p.lead_time_days, 
-                p.supplier, p.category, i.current_stock, i.updated_at
         `;
         
         const params = [];
