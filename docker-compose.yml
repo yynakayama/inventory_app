@@ -4,10 +4,10 @@ services:
     image: mysql:8.0
     container_name: inventory-mysql
     ports:
-      - "3306:3306"
+      - "${DB_PORT}:3306"
     environment:
-      - MYSQL_ROOT_PASSWORD=password
-      - MYSQL_DATABASE=inventory_db
+      - MYSQL_ROOT_PASSWORD=${DB_PASSWORD}
+      - MYSQL_DATABASE=${DB_NAME}
       - MYSQL_CHARSET=utf8mb4
       - MYSQL_COLLATION=utf8mb4_unicode_ci
     volumes:
@@ -20,7 +20,7 @@ services:
       --collation-server=utf8mb4_unicode_ci
       --skip-character-set-client-handshake
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ppassword"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${DB_USER}", "-p${DB_PASSWORD}"]
       interval: 10s
       timeout: 10s
       retries: 10
@@ -36,10 +36,10 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      - PMA_HOST=mysql
-      - PMA_PORT=3306
-      - PMA_USER=root
-      - PMA_PASSWORD=password
+      - PMA_HOST=${DB_HOST}
+      - PMA_PORT=${DB_PORT}
+      - PMA_USER=${DB_USER}
+      - PMA_PASSWORD=${DB_PASSWORD}
       - PMA_ARBITRARY=1
       - UPLOAD_LIMIT=1G
     restart: unless-stopped
@@ -49,17 +49,19 @@ services:
     build: .
     container_name: inventory-app
     ports:
-      - "3000:3000"
+      - "${PORT}:3000"
     depends_on:
       mysql:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
-      - NODE_ENV=development
-      - DB_HOST=mysql
-      - DB_PORT=3306
-      - DB_NAME=inventory_db
-      - DB_USER=root
-      - DB_PASSWORD=password
+      - NODE_ENV=${NODE_ENV}
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
     volumes:
       - .:/app
       - /app/node_modules
@@ -76,14 +78,16 @@ services:
       - "3001:3001"
     depends_on:
       - app
+    env_file:
+      - .env
     environment:
-      - NODE_ENV=development
-      - NEXT_PUBLIC_API_URL=http://localhost:3000
+      - NODE_ENV=${NODE_ENV}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
       # 起動速度向上のための環境変数
-      - NEXT_TELEMETRY_DISABLED=1
-      - WATCHPACK_POLLING=true
-      - CHOKIDAR_USEPOLLING=true
-      - FAST_REFRESH=true
+      - NEXT_TELEMETRY_DISABLED=${NEXT_TELEMETRY_DISABLED}
+      - WATCHPACK_POLLING=${WATCHPACK_POLLING}
+      - CHOKIDAR_USEPOLLING=${CHOKIDAR_USEPOLLING}
+      - FAST_REFRESH=${FAST_REFRESH}
     volumes:
       - ./frontend:/app
       - /app/node_modules
