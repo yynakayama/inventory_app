@@ -81,9 +81,9 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:3000
       # 起動速度向上のための環境変数
       - NEXT_TELEMETRY_DISABLED=1
-      - WATCHPACK_POLLING=false
-      - CHOKIDAR_USEPOLLING=false
-      - FAST_REFRESH=false
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+      - FAST_REFRESH=true
     volumes:
       - ./frontend:/app
       - /app/node_modules
