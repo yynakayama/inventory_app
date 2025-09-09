@@ -327,10 +327,10 @@ function ProductionPlansContent() {
     }
   }
 
-  // 修正: ステータス更新（バックエンドが期待する完全なリクエストボディに修正）
-  const handleStatusChange = async (planId: number, newStatus: string) => {
+  // 生産開始処理（部材消費付き）
+  const handleStartProduction = async (planId: number) => {
     const confirmed = window.confirm(
-      `ステータスを「${newStatus}」に変更しますか？`
+      `🚀 生産を開始しますか？\n\n※この操作により、必要な部材が在庫から消費されます。\n※操作後は元に戻せません。`
     )
     
     if (!confirmed) return
@@ -340,142 +340,19 @@ function ProductionPlansContent() {
       
       const token = localStorage.getItem('token')
       
-      // まず現在の計画データを取得
-      console.log('🔍 全生産計画データ:', productionPlans)
-      console.log('🔍 検索対象planId:', planId, 'typeof:', typeof planId)
+      console.log('🚀 生産開始リクエスト:', { planId })
       
-      const currentPlan = productionPlans.find(plan => {
-        console.log('🔍 比較:', plan.id, typeof plan.id, '===', planId, typeof planId, '→', plan.id === planId)
-        return plan.id === planId
-      })
-      
-      // 緊急対応：currentPlanが見つからない場合はAPIから直接取得
-      if (!currentPlan) {
-        console.error('❌ 計画データが見つかりません。利用可能なID:', productionPlans.map(p => p.id))
-        
-        // APIから直接計画データを取得
-        console.log('🔄 APIから直接計画データを取得します...')
-        const planResponse = await fetch(`http://localhost:3000/api/plans/${planId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        })
-        
-        if (!planResponse.ok) {
-          throw new Error('計画データの直接取得に失敗しました')
-        }
-        
-        const planResult = await planResponse.json()
-        if (!planResult.success) {
-          throw new Error('計画データの取得に失敗しました')
-        }
-        
-        const apiPlan = planResult.data
-        console.log('📊 APIから取得した計画データ:', apiPlan)
-        
-        // APIから取得したデータでrequestBodyを構築
-        const formattedStartDate = apiPlan.start_date?.includes('T') 
-          ? apiPlan.start_date.split('T')[0] 
-          : apiPlan.start_date
-
-        const requestBody = {
-          building_no: apiPlan.building_no || "",
-          product_code: apiPlan.product_code,
-          planned_quantity: Number(apiPlan.planned_quantity),
-          start_date: formattedStartDate,
-          status: newStatus,
-          remarks: apiPlan.remarks || ""
-        }
-        
-        console.log('📝 APIデータから構築されたrequestBody:', requestBody)
-        
-        // ここでAPIリクエストを実行
-        const updateResponse = await fetch(`http://localhost:3000/api/plans/${planId}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify(requestBody)
-        })
-        
-        if (!updateResponse.ok) {
-          const errorText = await updateResponse.text()
-          console.error('❌ HTTPエラー:', {
-            status: updateResponse.status,
-            statusText: updateResponse.statusText,
-            responseText: errorText
-          })
-          
-          try {
-            const errorData = JSON.parse(errorText)
-            console.error('❌ ステータス更新エラーレスポンス:', errorData)
-            throw new Error(errorData.message || `HTTPエラー ${updateResponse.status}: ${updateResponse.statusText}`)
-          } catch (parseError) {
-            throw new Error(`HTTPエラー ${updateResponse.status}: ${errorText || updateResponse.statusText}`)
-          }
-        }
-        
-        const updateResult = await updateResponse.json()
-        console.log('✅ ステータス更新成功:', updateResult)
-        
-        await fetchProductionPlans()
-        alert(`ステータスを「${newStatus}」に更新しました`)
-        return
-      }
-
-      // 現在の計画データの詳細を確認（デバッグ用）
-      console.log('📊 現在の計画データ詳細:', {
-        id: currentPlan.id,
-        building_no: currentPlan.building_no,
-        product_code: currentPlan.product_code,
-        planned_quantity: currentPlan.planned_quantity,
-        start_date: currentPlan.start_date,
-        current_status: currentPlan.status,
-        remarks: currentPlan.remarks,
-        created_by: currentPlan.created_by
-      })
-
-      // 日付フォーマットを確実にYYYY-MM-DD形式にする
-      const formattedStartDate = currentPlan.start_date?.includes('T') 
-        ? currentPlan.start_date.split('T')[0] 
-        : currentPlan.start_date
-
-      // バックエンドが期待する完全なリクエストボディを構築
-      const requestBody = {
-        building_no: currentPlan.building_no || "",
-        product_code: currentPlan.product_code,
-        planned_quantity: Number(currentPlan.planned_quantity),
-        start_date: formattedStartDate,
-        status: newStatus,
-        remarks: currentPlan.remarks || ""
-      }
-      
-      console.log('📝 構築されたrequestBody:', requestBody)
-      
-      // デバッグ用ログ
-      console.log('🚀 ステータス変更リクエスト:', { 
-        planId, 
-        newStatus, 
-        currentPlan: {
-          id: currentPlan.id,
-          product_code: currentPlan.product_code,
-          current_status: currentPlan.status
-        },
-        requestBody 
-      })
-      
-      const response = await fetch(`http://localhost:3000/api/plans/${planId}`, {
-        method: 'PUT',
+      const response = await fetch(`http://localhost:3000/api/plans/${planId}/start-production`, {
+        method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify(requestBody)
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
       })
       
-      // 詳細なエラー情報を確認
       if (!response.ok) {
         const errorText = await response.text()
-        console.error('❌ HTTPエラー:', {
+        console.error('❌ 生産開始エラー:', {
           status: response.status,
           statusText: response.statusText,
           responseText: errorText
@@ -483,7 +360,6 @@ function ProductionPlansContent() {
         
         try {
           const errorData = JSON.parse(errorText)
-          console.error('❌ ステータス更新エラーレスポンス:', errorData)
           throw new Error(errorData.message || `HTTPエラー ${response.status}: ${response.statusText}`)
         } catch (parseError) {
           throw new Error(`HTTPエラー ${response.status}: ${errorText || response.statusText}`)
@@ -491,18 +367,72 @@ function ProductionPlansContent() {
       }
       
       const result = await response.json()
-      console.log('✅ ステータス更新成功:', result)
+      console.log('✅ 生産開始成功:', result)
       
       await fetchProductionPlans()
-      alert(`ステータスを「${newStatus}」に更新しました`)
+      alert(`🚀 生産を開始しました！\n\n消費部材: ${result.data.consumption_summary.consumed_parts_count}種類\n消費数量計: ${result.data.consumption_summary.total_consumed_items}個`)
       
     } catch (err) {
-      console.error('❌ ステータス更新エラー:', err)
-      setError(err instanceof Error ? err.message : 'ステータス更新エラー')
+      console.error('❌ 生産開始エラー:', err)
+      setError(err instanceof Error ? err.message : '生産開始エラー')
     } finally {
       setLoading(false)
     }
   }
+
+  // 生産完了処理
+  const handleCompleteProduction = async (planId: number) => {
+    const confirmed = window.confirm(
+      `✅ 生産を完了しますか？\n\n※この操作により、生産計画のステータスが「完了」になります。`
+    )
+    
+    if (!confirmed) return
+
+    try {
+      setLoading(true)
+      
+      const token = localStorage.getItem('token')
+      
+      console.log('✅ 生産完了リクエスト:', { planId })
+      
+      const response = await fetch(`http://localhost:3000/api/plans/${planId}/complete-production`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ 生産完了エラー:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseText: errorText
+        })
+        
+        try {
+          const errorData = JSON.parse(errorText)
+          throw new Error(errorData.message || `HTTPエラー ${response.status}: ${response.statusText}`)
+        } catch (parseError) {
+          throw new Error(`HTTPエラー ${response.status}: ${errorText || response.statusText}`)
+        }
+      }
+      
+      const result = await response.json()
+      console.log('✅ 生産完了成功:', result)
+      
+      await fetchProductionPlans()
+      alert(`✅ 生産が完了しました！\n\n製品: ${result.data.product_code}\n完了数量: ${result.data.final_quantity}個`)
+      
+    } catch (err) {
+      console.error('❌ 生産完了エラー:', err)
+      setError(err instanceof Error ? err.message : '生産完了エラー')
+    } finally {
+      setLoading(false)
+    }
+  }
+
 
   // ローディング状態
   if (loading && productionPlans.length === 0) {
@@ -633,10 +563,10 @@ function ProductionPlansContent() {
                         <>
                           <Button
                             size="sm"
-                            onClick={() => handleStatusChange(plan.id, '生産中')}
-                            className="bg-yellow-600 hover:bg-yellow-700"
+                            onClick={() => handleStartProduction(plan.id)}
+                            className="bg-green-600 hover:bg-green-700"
                           >
-                            🔄 開始
+                            🚀 生産開始
                           </Button>
                           <Button
                             size="sm"
@@ -651,10 +581,10 @@ function ProductionPlansContent() {
                         <>
                           <Button
                             size="sm"
-                            onClick={() => handleStatusChange(plan.id, '完了')}
+                            onClick={() => handleCompleteProduction(plan.id)}
                             className="bg-blue-600 hover:bg-blue-700"
                           >
-                            ✅ 完了
+                            ✅ 生産完了
                           </Button>
                           <Button
                             size="sm"

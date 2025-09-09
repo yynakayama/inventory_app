@@ -97,41 +97,19 @@ ON DUPLICATE KEY UPDATE
 
 -- 6. 初期データ投入 - 工程ベースBOM（製品V5000の例）
 INSERT INTO bom_items (product_code, station_code, part_code, quantity, remarks) VALUES
--- V5000製品のBOM構成
+-- V5000製品のBOM構成（5部品以下に簡素化）
 -- sub1-1工程（電子基板組み立て）
 ('V5000', 'sub1-1', 'LED-RED-5MM-20MA', 2, '状態表示LED'),
-('V5000', 'sub1-1', 'LED-GREEN-5MM-20MA', 1, '正常表示LED'),
 ('V5000', 'sub1-1', 'RES-1K-1/4W-5PCT', 4, '電流制限抵抗'),
-('V5000', 'sub1-1', 'RES-10K-1/4W-5PCT', 2, 'プルアップ抵抗'),
-('V5000', 'sub1-1', 'CAP-ELEC-100UF-25V', 1, '電源安定化コンデンサ'),
-
--- sub1-2工程（配線・結線）
-('V5000', 'sub1-2', 'SUS304-M6-20-HEX', 4, '基板固定ボルト'),
-('V5000', 'sub1-2', 'SUS304-M6-NUT', 4, '基板固定ナット'),
-('V5000', 'sub1-2', 'SUS304-M6-WASHER', 8, '基板固定ワッシャー'),
-
--- sub4-1工程（筐体加工）
-('V5000', 'sub4-1', 'AL5052-PLATE-100X100X3', 1, 'ベースプレート'),
-('V5000', 'sub4-1', 'SPCC-BRACKET-L50X50X3', 2, '取付ブラケット'),
 
 -- sub4-2工程（筐体組み立て）
 ('V5000', 'sub4-2', 'ABS-CASE-150X90X35', 1, 'メイン筐体'),
-('V5000', 'sub4-2', 'POM-BTN-BLACK-12MM', 1, '操作ボタン'),
-('V5000', 'sub4-2', 'SUS304-M8-30-HEX', 4, '筐体固定ボルト'),
-('V5000', 'sub4-2', 'SUS304-M8-NUT', 4, '筐体固定ナット'),
 
 -- main1-1工程（主装置組み立て）
 ('V5000', 'main1-1', 'MOTOR-NEMA17-17HS4401', 1, '駆動モーター'),
-('V5000', 'main1-1', 'BEARING-608ZZ-8X22X7', 2, 'モーター支持ベアリング'),
-('V5000', 'main1-1', 'SUS304-SHAFT-6X100', 1, '駆動軸'),
-
--- test1-1工程（機能テスト）
-('V5000', 'test1-1', 'SENSOR-PT100-CLASSA', 1, 'テスト用温度センサー'),
 
 -- 最終工程（梱包）
-('V5000', 'test1-2', 'CARDBOARD-BOX-250X180X120', 1, '製品梱包箱'),
-('V5000', 'test1-2', 'BUBBLE-WRAP-300MM-4MM', 1, '緩衝材'),
-('V5000', 'test1-2', 'OPP-TAPE-50MM-100M', 1, '封緘テープ')
+('V5000', 'test1-2', 'CARDBOARD-BOX-250X180X120', 1, '製品梱包箱')
 
 ON DUPLICATE KEY UPDATE
     quantity = VALUES(quantity),
@@ -140,28 +118,18 @@ ON DUPLICATE KEY UPDATE
 
 -- 7. 初期データ投入 - 工程ベースBOM（製品D2000の例）
 INSERT INTO bom_items (product_code, station_code, part_code, quantity, remarks) VALUES
--- D2000製品のBOM構成（V5000とは異なる構成）
--- sub1-1工程（電子基板組み立て）- D2000は高機能なので部品が違う
+-- D2000製品のBOM構成（5部品以下に簡素化、V5000と2部品共通）
+-- sub1-1工程（電子基板組み立て）
 ('D2000', 'sub1-1', 'LED-BLUE-5MM-20MA', 3, 'データ表示LED'),
-('D2000', 'sub1-1', 'LED-WHITE-5MM', 1, 'バックライト'),
-('D2000', 'sub1-1', 'RES-10K-1/4W-5PCT', 6, '入力抵抗'),
-('D2000', 'sub1-1', 'CAP-ELEC-100UF-25V', 2, '電源回路用'),
-
--- sub4-1工程（筐体加工）- D2000は大型
-('D2000', 'sub4-1', 'AL5052-PLATE-150X150X3', 1, '大型ベースプレート'),
-('D2000', 'sub4-1', 'SPCC-BRACKET-L50X50X3', 4, '取付ブラケット（多数）'),
+('D2000', 'sub1-1', 'RES-1K-1/4W-5PCT', 6, '入力抵抗（V5000と共通）'),
 
 -- sub4-2工程（筐体組み立て）
-('D2000', 'sub4-2', 'ABS-CASE-150X90X35', 1, 'メイン筐体'),
-('D2000', 'sub4-2', 'POM-BTN-BLACK-12MM', 2, '操作ボタン（複数）'),
-('D2000', 'sub4-2', 'POM-BTN-RED-12MM', 1, '非常停止ボタン'),
+('D2000', 'sub4-2', 'ABS-CASE-150X90X35', 1, 'メイン筐体（V5000と共通）'),
 
--- main1-1工程（主装置組み立て）- D2000は高性能
+-- main1-1工程（主装置組み立て）
 ('D2000', 'main1-1', 'SENSOR-PT100-CLASSA', 2, 'データ収集用センサー'),
-('D2000', 'main1-1', 'SUS304-M6-25-HEX', 6, '高強度固定ボルト'),
 
 -- 最終工程（梱包）
-('D2000', 'test1-2', 'CARDBOARD-BOX-250X180X120', 1, '製品梱包箱'),
 ('D2000', 'test1-2', 'BUBBLE-WRAP-300MM-4MM', 2, '厳重梱包用緩衝材')
 
 ON DUPLICATE KEY UPDATE

@@ -28,6 +28,7 @@ const dbConfig = {
 const crudOperations = require('./crud-operations');
 const requirementsCalculator = require('./requirements-calculator');
 const reservationManager = require('./reservation-manager');
+const productionConsumption = require('./production-consumption');
 
 // ==========================================
 // 認証ミドルウェアを全ルートに適用
@@ -58,6 +59,11 @@ router.use(async (req, res, next) => {
 router.use('/', crudOperations);
 router.use('/', requirementsCalculator);
 
+// 【生産管理系】生産管理権限が必要
+// POST /api/plans/:id/start-production - 生産開始・部材消費
+// POST /api/plans/:id/complete-production - 生産完了
+router.use('/', productionConsumption);
+
 // ==========================================
 // ルート情報の出力（開発用）
 // ==========================================
@@ -72,6 +78,8 @@ if (process.env.NODE_ENV === 'development') {
     console.log('    POST   /api/plans                     - 生産計画登録（自動予約付き）');
     console.log('    PUT    /api/plans/:id                 - 生産計画更新（予約更新付き）');
     console.log('    DELETE /api/plans/:id                 - 生産計画削除（予約解除付き）');
+    console.log('    POST   /api/plans/:id/start-production   - 生産開始・部材消費');
+    console.log('    POST   /api/plans/:id/complete-production - 生産完了');
     console.log('');
     console.log('  🔐 認証要件:');
     console.log('    - 全API: JWT認証必須');

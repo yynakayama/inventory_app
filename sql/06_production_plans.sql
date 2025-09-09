@@ -87,7 +87,15 @@ SELECT
     
     -- 在庫情報
     COALESCE(i.current_stock, 0) as current_stock,
-    COALESCE(i.reserved_stock, 0) as total_reserved_stock,
+    -- 開始予定日が早い計画の必要数量合計を予約済数量として計算
+    COALESCE(
+        (SELECT SUM(required_quantity) 
+         FROM production_plan_requirements other_ppr 
+         WHERE other_ppr.part_code = ppr.part_code 
+         AND other_ppr.plan_id != ppr.plan_id
+         AND other_ppr.plan_status IN ('計画', '生産中')
+         AND other_ppr.start_date < ppr.start_date), 0
+    ) as total_reserved_stock,
     COALESCE(ir.reserved_quantity, 0) as plan_reserved_quantity,
     
     -- 予定入荷情報（生産開始日まで）
@@ -99,7 +107,7 @@ SELECT
          AND sr.scheduled_date <= ppr.start_date), 0
     ) as scheduled_receipts_until_start,
     
-    -- 利用可能在庫計算
+    -- 利用可能在庫計算（開始予定日が早い計画の必要数量を差し引く）
     (COALESCE(i.current_stock, 0) + 
      COALESCE(
         (SELECT SUM(scheduled_quantity) 
@@ -108,10 +116,17 @@ SELECT
          AND sr.status = '入荷予定'
          AND sr.scheduled_date <= ppr.start_date), 0
      ) - 
-     COALESCE(i.reserved_stock, 0)
+     COALESCE(
+        (SELECT SUM(required_quantity) 
+         FROM production_plan_requirements other_ppr 
+         WHERE other_ppr.part_code = ppr.part_code 
+         AND other_ppr.plan_id != ppr.plan_id
+         AND other_ppr.plan_status IN ('計画', '生産中')
+         AND other_ppr.start_date < ppr.start_date), 0
+     )
     ) as available_stock,
     
-    -- 過不足判定
+    -- 過不足判定（開始予定日が早い計画の必要数量を考慮）
     (ppr.required_quantity - 
      (COALESCE(i.current_stock, 0) + 
       COALESCE(
@@ -121,7 +136,14 @@ SELECT
          AND sr.status = '入荷予定'
          AND sr.scheduled_date <= ppr.start_date), 0
       ) - 
-      COALESCE(i.reserved_stock, 0)
+      COALESCE(
+        (SELECT SUM(required_quantity) 
+         FROM production_plan_requirements other_ppr 
+         WHERE other_ppr.part_code = ppr.part_code 
+         AND other_ppr.plan_id != ppr.plan_id
+         AND other_ppr.plan_status IN ('計画', '生産中')
+         AND other_ppr.start_date < ppr.start_date), 0
+      )
      )
     ) as shortage_quantity,
     
