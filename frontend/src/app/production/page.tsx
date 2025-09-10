@@ -16,6 +16,7 @@ import {
   SearchFilters,
   PlanForm
 } from '@/types/production'
+import { getConditionalRowColor } from '@/utils/tableRowColors'
 
 // インポートした型定義を使用
 
@@ -37,6 +38,9 @@ function ProductionPlansContent() {
   const [requirementResult, setRequirementResult] = useState<RequirementCalculation | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  
+  // 不足部材チェック結果のキャッシュ
+  const [shortageCache, setShortageCache] = useState<Map<number, boolean>>(new Map())
   
   // フィルタリング状態
   const [filters, setFilters] = useState<SearchFilters>({
@@ -116,8 +120,16 @@ function ProductionPlansContent() {
       const result = await response.json()
       if (result.success) {
         console.log('✅ 取得した生産計画データ:', result.data)
-        setProductionPlans(result.data || [])
-        console.log('✅ 検索完了:', result.data?.length || 0, '件取得')
+        const plans = result.data || []
+        setProductionPlans(plans)
+        console.log('✅ 検索完了:', plans.length, '件取得')
+        
+        // 不足部材チェックを非同期実行（バックグラウンド）
+        if (plans.length > 0) {
+          checkShortageForPlans(plans).catch(err => 
+            console.error('不足部材チェックエラー:', err)
+          )
+        }
       } else {
         throw new Error(result.message || 'データ取得に失敗しました')
       }
@@ -127,6 +139,53 @@ function ProductionPlansContent() {
       setError(err instanceof Error ? err.message : '不明なエラーが発生しました')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 生産計画の不足部材をチェック（軽量版）
+  const checkShortageForPlan = async (planId: number): Promise<boolean> => {
+    // キャッシュから確認
+    if (shortageCache.has(planId)) {
+      return shortageCache.get(planId)!
+    }
+
+    try {
+      const token = localStorage.getItem('token')
+      const response = await fetch(`http://localhost:3000/api/plans/${planId}/requirements`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (response.ok) {
+        const result = await response.json()
+        const hasShortage = result.success && result.data?.shortage_summary?.has_shortage === true
+        
+        // キャッシュに保存
+        setShortageCache(prev => new Map(prev).set(planId, hasShortage))
+        return hasShortage
+      }
+    } catch (error) {
+      console.error(`Plan ${planId} shortage check failed:`, error)
+    }
+    
+    return false
+  }
+
+  // 複数の生産計画の不足部材を一括チェック
+  const checkShortageForPlans = async (plans: ProductionPlan[]) => {
+    const activePlans = plans.filter(plan => plan.status === '計画' || plan.status === '生産中')
+    
+    // 最大3件まで並行処理
+    const batches = []
+    for (let i = 0; i < activePlans.length; i += 3) {
+      batches.push(activePlans.slice(i, i + 3))
+    }
+    
+    for (const batch of batches) {
+      await Promise.all(batch.map(plan => checkShortageForPlan(plan.id)))
     }
   }
 
@@ -549,8 +608,14 @@ function ProductionPlansContent() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {productionPlans.map((plan) => (
-                  <tr key={plan.id} className="hover:bg-gray-50">
+                {productionPlans.map((plan) => {
+                  // 不足部材がある場合の背景色決定
+                  const hasShortage = shortageCache.get(plan.id) === true
+                  const shouldHighlight = hasShortage && (plan.status === '計画' || plan.status === '生産中')
+                  const rowColor = getConditionalRowColor(shouldHighlight, 'danger', 'normal')
+
+                  return (
+                    <tr key={plan.id} className={rowColor}>
                     <td className="px-6 py-4 whitespace-nowrap text-sm space-x-2">
                       <Button
                         size="sm"
@@ -597,7 +662,14 @@ function ProductionPlansContent() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      #{plan.id}
+                      <div className="flex items-center gap-2">
+                        #{plan.id}
+                        {hasShortage && (plan.status === '計画' || plan.status === '生産中') && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 text-xs font-medium bg-red-100 text-red-800 rounded-full" title="部材不足あり">
+                            ⚠️
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {plan.product_code}
@@ -618,7 +690,8 @@ function ProductionPlansContent() {
                       {plan.created_by}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

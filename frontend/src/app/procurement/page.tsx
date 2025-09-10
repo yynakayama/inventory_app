@@ -9,6 +9,7 @@ import Modal from '@/components/ui/Modal'
 import PartCodeSelector from '@/components/ui/PartCodeSelector'
 import StatusBadge from '@/components/procurement/StatusBadge'
 import SearchFilters from '@/components/procurement/SearchFilters'
+import { getConditionalRowColor } from '@/utils/tableRowColors'
 import {
   ScheduledReceipt,
   ReceiptForm,
@@ -732,26 +733,19 @@ function ScheduledReceiptsContent() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {filteredReceipts.map((receipt) => {
                     // 行の背景色を決定
-                    const getRowBackgroundColor = () => {
-                      if (receipt.status === '入荷予定' && receipt.scheduled_date) {
-                        const today = new Date()
-                        const scheduledDate = new Date(receipt.scheduled_date)
-                        const daysDiff = Math.floor((scheduledDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-                        
-                        // 遅延している（過去の日付）
-                        if (daysDiff < 0) {
-                          return 'bg-red-50 hover:bg-red-100'
-                        }
-                        // 3日以内の入荷予定（入荷間近）
-                        else if (daysDiff <= 3) {
-                          return 'bg-green-50 hover:bg-green-100'
-                        }
-                      }
-                      return 'hover:bg-gray-50'
-                    }
+                    const isOverdue = receipt.status === '入荷予定' && receipt.scheduled_date && 
+                      Math.floor((new Date(receipt.scheduled_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) < 0
+                    
+                    const isUpcoming = receipt.status === '入荷予定' && receipt.scheduled_date && 
+                      Math.floor((new Date(receipt.scheduled_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) <= 3 &&
+                      Math.floor((new Date(receipt.scheduled_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)) >= 0
+                    
+                    const rowColor = isOverdue ? getConditionalRowColor(true, 'danger', 'normal') :
+                                    isUpcoming ? getConditionalRowColor(true, 'success', 'normal') :
+                                    getConditionalRowColor(false)
 
                     return (
-                      <tr key={receipt.id} className={getRowBackgroundColor()}>
+                      <tr key={receipt.id} className={rowColor}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm space-x-2">
                         {receipt.status === '納期回答待ち' && (
                           <ProcurementEditGuard>
