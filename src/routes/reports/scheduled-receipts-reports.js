@@ -53,7 +53,6 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                 -- 納期状況の判定
                 CASE 
                     WHEN sr.status = '納期回答待ち' THEN '回答待ち'
-                    WHEN sr.status = 'キャンセル' THEN 'キャンセル済み'
                     WHEN sr.status = '入荷済み' THEN '入荷完了'
                     WHEN sr.scheduled_date < CURDATE() THEN '納期遅延'
                     WHEN DATEDIFF(sr.scheduled_date, CURDATE()) <= 3 THEN '3日以内入荷予定'
@@ -111,8 +110,7 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
             status_breakdown: {
                 waiting_response: results.filter(r => r.status === '納期回答待ち').length,
                 scheduled: results.filter(r => r.status === '入荷予定').length,
-                received: results.filter(r => r.status === '入荷済み').length,
-                cancelled: results.filter(r => r.status === 'キャンセル').length
+                received: results.filter(r => r.status === '入荷済み').length
             },
             delivery_issues: {
                 delayed_orders: results.filter(r => r.delivery_status === '納期遅延').length,

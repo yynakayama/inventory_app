@@ -432,7 +432,7 @@ router.put('/:id/mark-received', authenticateToken, requireMaterialAccess, async
 });
 
 // ==========================================
-// 6. 発注キャンセル
+// 6. 発注削除
 // PUT /api/scheduled-receipts/:id/cancel
 // 権限: 資材管理権限（admin, material_staff）
 // ==========================================
@@ -460,47 +460,42 @@ router.put('/:id/cancel', authenticateToken, requireMaterialAccess, async (req, 
         
         const currentOrder = orderResults[0];
         
-        // 入荷済み以外はキャンセル可能
+        // 入荷済み以外は削除可能
         if (currentOrder.status === '入荷済み') {
             return res.status(400).json({
                 success: false,
-                message: '入荷済みの発注はキャンセルできません'
+                message: '入荷済みの発注は削除できません'
             });
         }
         
-        // 発注をキャンセル状態に更新
-        await connection.execute(`
-            UPDATE scheduled_receipts 
-            SET 
-                status = 'キャンセル',
-                remarks = CONCAT(COALESCE(remarks, ''), '\nキャンセル理由: ', ?),
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        `, [reason || 'キャンセル', id]);
+        // 削除情報をログ用に保存
+        const deleteInfo = {
+            id: currentOrder.id,
+            order_no: currentOrder.order_no,
+            part_code: currentOrder.part_code,
+            order_quantity: currentOrder.order_quantity,
+            supplier: currentOrder.supplier,
+            status: currentOrder.status
+        };
         
-        // 更新後の情報を取得
-        const [updatedOrder] = await connection.execute(`
-            SELECT 
-                sr.*,
-                p.specification
-            FROM scheduled_receipts sr
-            JOIN parts p ON sr.part_code = p.part_code
-            WHERE sr.id = ?
+        // 発注レコードを削除
+        await connection.execute(`
+            DELETE FROM scheduled_receipts WHERE id = ?
         `, [id]);
         
-        console.log(`[${new Date().toISOString()}] 発注キャンセル: ユーザー=${req.user.username}, 発注ID=${id}, 理由=${reason || 'キャンセル'}`);
+        console.log(`[${new Date().toISOString()}] 発注削除: ユーザー=${req.user.username}, 発注ID=${id}, 発注番号=${deleteInfo.order_no}, 理由=${reason || '削除'}`);
         
         res.json({
             success: true,
-            data: updatedOrder[0],
-            message: '発注をキャンセルしました'
+            data: deleteInfo,
+            message: '発注を削除しました'
         });
         
     } catch (error) {
-        console.error('❌ 発注キャンセルエラー:', error);
+        console.error('❌ 発注削除エラー:', error);
         res.status(500).json({
             success: false,
-            message: '発注キャンセルに失敗しました',
+            message: '発注削除に失敗しました',
             error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     } finally {

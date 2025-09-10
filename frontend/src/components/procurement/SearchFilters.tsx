@@ -49,7 +49,6 @@ export default function SearchFilters({
                 <option value="納期回答待ち">納期回答待ち</option>
                 <option value="入荷予定">入荷予定</option>
                 <option value="入荷済み">入荷済み</option>
-                <option value="キャンセル">キャンセル</option>
               </select>
             </div>
             

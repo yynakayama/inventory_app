@@ -21,8 +21,7 @@ CREATE TABLE scheduled_receipts (
     status ENUM(
         '納期回答待ち',   -- 発注登録直後
         '入荷予定',       -- 納期回答済み
-        '入荷済み',       -- 入荷処理完了
-        'キャンセル'      -- 発注キャンセル
+        '入荷済み'        -- 入荷処理完了
     ) NOT NULL DEFAULT '納期回答待ち',
     
     -- その他情報
@@ -121,4 +120,4 @@ ORDER BY sr.created_at DESC;
 -- 1. 発注登録時：order_no自動採番、ステータス「納期回答待ち」
 -- 2. 納期回答時：scheduled_quantity、scheduled_date更新、ステータス「入荷予定」
 -- 3. 入荷処理時：receipts テーブルとの連携でステータス「入荷済み」
--- 4. キャンセル時：ステータス「キャンセル」に変更
+-- 4. 削除時：レコード物理削除

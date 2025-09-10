@@ -47,6 +47,7 @@ function ScheduledReceiptsContent() {
   const [showReceiptModal, setShowReceiptModal] = useState(false)
   const [showDeliveryModal, setShowDeliveryModal] = useState(false)
   const [showOrderModal, setShowOrderModal] = useState(false)
+  const [showCancelModal, setShowCancelModal] = useState(false)
   
   // フォーム状態
   const [receiptForm, setReceiptForm] = useState<ReceiptForm>({
@@ -191,6 +192,18 @@ function ScheduledReceiptsContent() {
       remarks: ''
     })
     setShowReceiptModal(true)
+    setError('')
+  }
+
+  // 削除モーダルを開く
+  const openCancelModal = (receipt: ScheduledReceipt) => {
+    if (receipt.status === '入荷済み') {
+      setError('入荷済みの発注は削除できません')
+      return
+    }
+    
+    setSelectedReceipt(receipt)
+    setShowCancelModal(true)
     setError('')
   }
 
@@ -374,6 +387,53 @@ function ScheduledReceiptsContent() {
     }
   }
 
+  // 発注削除処理
+  const handleCancelOrder = async () => {
+    if (!selectedReceipt) return
+
+    const confirmed = window.confirm(
+      `以下の発注を削除しますか？\n\n` +
+      `発注番号: ${selectedReceipt.order_no}\n` +
+      `部品コード: ${selectedReceipt.part_code}\n` +
+      `発注数量: ${selectedReceipt.order_quantity}個\n` +
+      `\n※この処理は取り消しできません。`
+    )
+
+    if (!confirmed) return
+
+    try {
+      setIsLoading(true)
+      
+      const token = localStorage.getItem('token')
+      const response = await fetch(`http://localhost:3000/api/scheduled-receipts/${selectedReceipt.id}/cancel`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          reason: 'フロントエンドからの削除'
+        })
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '発注削除に失敗しました')
+      }
+      
+      setShowCancelModal(false)
+      setSelectedReceipt(null)
+      await fetchScheduledReceipts()
+      
+      alert('発注を削除しました')
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '発注削除エラー')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   // ステータス表示用のスタイル
   // getStatusStyle関数はStatusBadgeコンポーネントに移動済み
 
@@ -486,6 +546,13 @@ function ScheduledReceiptsContent() {
                             >
                               納期設定
                             </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => openCancelModal(receipt)}
+                              className="bg-red-600 hover:bg-red-700 ml-2"
+                            >
+                              キャンセル
+                            </Button>
                           </ProcurementEditGuard>
                         )}
                         {receipt.status === '入荷予定' && (
@@ -496,6 +563,13 @@ function ScheduledReceiptsContent() {
                               className="bg-green-600 hover:bg-green-700"
                             >
                               入荷処理
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => openCancelModal(receipt)}
+                              className="bg-red-600 hover:bg-red-700 ml-2"
+                            >
+                              キャンセル
                             </Button>
                           </ProcurementEditGuard>
                         )}
@@ -776,6 +850,68 @@ function ScheduledReceiptsContent() {
                   disabled={isLoading}
                 >
                   キャンセル
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 削除確認モーダル */}
+        {showCancelModal && selectedReceipt && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg max-w-md w-full mx-4">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900">🗑️ 発注キャンセル</h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  以下の発注を削除しますか？
+                </p>
+              </div>
+              
+              <div className="px-6 py-4">
+                <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">発注番号:</span>
+                    <span className="text-gray-900">{selectedReceipt.order_no}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">部品コード:</span>
+                    <span className="text-gray-900">{selectedReceipt.part_code}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">発注数量:</span>
+                    <span className="text-gray-900">{selectedReceipt.order_quantity}個</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">仕入先:</span>
+                    <span className="text-gray-900">{selectedReceipt.supplier}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-medium text-gray-700">ステータス:</span>
+                    <span className="text-gray-900">{selectedReceipt.status}</span>
+                  </div>
+                </div>
+                
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm font-medium">
+                    ⚠️ 注意: この操作は取り消しできません
+                  </p>
+                </div>
+              </div>
+              
+              <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
+                <Button
+                  onClick={handleCancelOrder}
+                  disabled={isLoading}
+                  className="flex-1 bg-red-600 hover:bg-red-700"
+                >
+                  {isLoading ? '削除中...' : '発注を削除'}
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowCancelModal(false)}
+                  disabled={isLoading}
+                >
+                  戻る
                 </Button>
               </div>
             </div>
