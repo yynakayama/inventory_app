@@ -782,11 +782,11 @@ function ProductionPlansContent() {
                       size="sm"
                       onClick={() => {
                         setShowRequirementModal(false)
-                        router.push('/procurement/scheduled?shortage=true')
+                        router.push('/procurement?shortage=true')
                       }}
                       className="bg-yellow-600 hover:bg-yellow-700"
                     >
-                      📝 調達管理で発注登録
+                      📝 調達管理で発注確認
                     </Button>
                   </div>
                 </div>

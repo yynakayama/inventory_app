@@ -181,6 +181,7 @@ function DashboardContent() {
   // ナビゲーション関数
   const navigateToInventoryList = () => router.push('/inventory')
   const navigateToProcurement = () => router.push('/procurement')
+  const navigateToProduction = () => router.push('/production')
   const navigateToReports = () => router.push('/reports')
 
   // ローディング状態
@@ -524,7 +525,7 @@ function DashboardContent() {
 
               <PermissionGuard requiredPermissions={['production.view']}>
                 <button 
-                  onClick={() => router.push('/production/plans')}
+                  onClick={navigateToProduction}
                   className="p-4 text-left border border-gray-200 rounded-lg hover:bg-orange-50 hover:border-orange-300 transition-colors duration-200"
                 >
                   <div className="flex items-center gap-3 mb-2">
