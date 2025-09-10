@@ -182,7 +182,6 @@ function DashboardContent() {
   const navigateToInventoryList = () => router.push('/inventory')
   const navigateToProcurement = () => router.push('/procurement')
   const navigateToProduction = () => router.push('/production')
-  const navigateToReports = () => router.push('/reports')
 
   // ローディング状態
   if (loading) {
@@ -355,7 +354,6 @@ function DashboardContent() {
               color="yellow"
               icon="📋"
               trend="neutral"
-              onClick={navigateToReports}
             />
           </div>
 
@@ -453,9 +451,6 @@ function DashboardContent() {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-gray-900">📋 棚おろし状況</h2>
-                <Button size="sm" variant="secondary" onClick={navigateToReports}>
-                  レポート表示
-                </Button>
               </div>
               <div className="space-y-3">
                 <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
@@ -483,7 +478,7 @@ function DashboardContent() {
           {/* クイックアクション */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4">⚡ クイックアクション</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <PermissionGuard requiredPermissions={['inventory.view']}>
                 <button 
                   onClick={navigateToInventoryList}
@@ -510,18 +505,6 @@ function DashboardContent() {
                 </button>
               </PermissionGuard>
 
-              <PermissionGuard requiredPermissions={['reports.view']}>
-                <button 
-                  onClick={navigateToReports}
-                  className="p-4 text-left border border-gray-200 rounded-lg hover:bg-purple-50 hover:border-purple-300 transition-colors duration-200"
-                >
-                  <div className="flex items-center gap-3 mb-2">
-                    <span className="text-2xl">📊</span>
-                    <div className="font-medium text-gray-900">レポート</div>
-                  </div>
-                  <div className="text-sm text-gray-500">各種レポートを確認</div>
-                </button>
-              </PermissionGuard>
 
               <PermissionGuard requiredPermissions={['production.view']}>
                 <button 

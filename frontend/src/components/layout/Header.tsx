@@ -49,11 +49,6 @@ export function Header() {
         { label: 'ユーザー管理', href: '/masters/users', roles: ['admin'] },
       ]
     },
-    {
-      label: 'レポート',
-      href: '/reports',
-      roles: ['admin', 'production_manager', 'material_staff', 'viewer'] // 全ユーザー（閲覧可能）
-    }
   ]
 
   // 権限チェック関数
