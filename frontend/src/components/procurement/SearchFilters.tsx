@@ -8,6 +8,8 @@ interface SearchFiltersProps {
   onPartCodeChange: (value: string) => void
   onReset: () => void
   onNewOrder: () => void
+  onToggleShortageList?: () => void
+  showShortageList?: boolean
   canEdit: boolean
 }
 
@@ -18,20 +20,31 @@ export default function SearchFilters({
   onPartCodeChange,
   onReset,
   onNewOrder,
+  onToggleShortageList,
+  showShortageList,
   canEdit
 }: SearchFiltersProps) {
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
       <div className="px-6 py-4">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          {/* 新規発注ボタン */}
-          <div>
+          {/* アクションボタン */}
+          <div className="flex gap-3">
             {canEdit && (
               <Button
                 onClick={onNewOrder}
                 className="bg-blue-600 hover:bg-blue-700"
               >
                 📝 新規発注
+              </Button>
+            )}
+            {onToggleShortageList && (
+              <Button
+                onClick={onToggleShortageList}
+                variant={showShortageList ? "danger" : "outline"}
+                className={showShortageList ? "bg-red-600 hover:bg-red-700" : ""}
+              >
+                {showShortageList ? "📋 不足部品を非表示" : "⚠️ 不足部品一覧"}
               </Button>
             )}
           </div>

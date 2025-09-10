@@ -155,6 +155,116 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
 });
 
 // ==========================================
+// 発注が必要な不足部品リスト（予定入荷考慮版）
+// GET /api/reports/shortage-parts/procurement-needed
+// 権限: 全ユーザー（認証必須）
+// 目的: 予定入荷を考慮して、実際に追加発注が必要な不足部品のみ取得
+// ==========================================
+router.get('/procurement-needed', authenticateToken, requireReadAccess, async (req, res) => {
+    let connection;
+    
+    try {
+        console.log(`[${new Date().toISOString()}] 📊 発注必要不足部品リスト取得開始: ユーザー=${req.user.username}`);
+        
+        connection = await mysql.createConnection(dbConfig);
+        
+        const query = `
+            WITH shortage_with_receipts AS (
+                SELECT 
+                    isc.part_code,
+                    p.specification as part_specification,
+                    p.category as part_category,
+                    p.supplier,
+                    p.unit_price,
+                    p.lead_time_days,
+                    
+                    -- 部品ごとに集約した数量情報
+                    SUM(isc.shortage_quantity) as shortage_quantity,
+                    MAX(isc.current_stock) as current_stock,
+                    MAX(isc.total_reserved_stock) as total_reserved_stock,
+                    MIN(isc.available_stock) as available_stock,
+                    
+                    -- 最も早い調達期限を採用
+                    MIN(isc.procurement_due_date) as procurement_due_date,
+                    MIN(isc.start_date) as production_start_date,
+                    
+                    -- 関連する生産計画情報を集約
+                    GROUP_CONCAT(DISTINCT isc.product_code ORDER BY isc.product_code) as product_codes,
+                    SUM(isc.planned_quantity) as total_production_quantity,
+                    
+                    -- 概算調達金額（全計画の合計）
+                    ROUND(SUM(isc.shortage_quantity) * COALESCE(p.unit_price, 0), 2) as estimated_cost,
+                    
+                    -- 該当部品の全予定入荷数量を計算（納期回答待ち + 入荷予定）
+                    COALESCE(SUM(CASE 
+                        WHEN sr.status IN ('納期回答待ち', '入荷予定') 
+                        THEN COALESCE(sr.scheduled_quantity, sr.order_quantity) 
+                        ELSE 0 
+                    END), 0) as total_scheduled_receipts
+                    
+                FROM inventory_sufficiency_check isc
+                INNER JOIN parts p ON isc.part_code = p.part_code
+                LEFT JOIN scheduled_receipts sr ON isc.part_code = sr.part_code 
+                    AND sr.status IN ('納期回答待ち', '入荷予定')
+                WHERE isc.shortage_quantity > 0  -- 不足がある部品のみ
+                GROUP BY 
+                    isc.part_code, 
+                    p.specification, 
+                    p.category, 
+                    p.supplier, 
+                    p.unit_price, 
+                    p.lead_time_days
+            )
+            SELECT *,
+                   -- 実際の追加発注必要数量
+                   GREATEST(0, shortage_quantity - total_scheduled_receipts) as additional_order_needed
+            FROM shortage_with_receipts
+            WHERE shortage_quantity > total_scheduled_receipts  -- 予定入荷を超える不足がある場合のみ
+            ORDER BY 
+                procurement_due_date ASC,  -- 調達期限の早い順
+                shortage_quantity DESC     -- 不足数量の多い順
+        `;
+
+        const [results] = await connection.execute(query);
+
+        // サマリー情報の計算
+        const summary = {
+            total_parts_needing_procurement: results.length,
+            total_additional_cost: results.reduce((sum, item) => sum + parseFloat(item.estimated_cost || 0), 0),
+            total_additional_quantity: results.reduce((sum, item) => sum + item.additional_order_needed, 0),
+            suppliers_affected: [...new Set(results.map(r => r.supplier))].length
+        };
+
+        console.log(`✅ 発注必要不足部品リスト取得完了: ${results.length}件`);
+
+        res.json({
+            success: true,
+            data: {
+                report_info: {
+                    report_type: '発注必要不足部品リスト（予定入荷考慮版）',
+                    generated_at: new Date().toISOString(),
+                    generated_by: req.user.username,
+                    description: '予定入荷を考慮して、実際に追加発注が必要な不足部品のみ抽出。'
+                },
+                summary: summary,
+                shortage_parts: results
+            },
+            message: `発注が必要な不足部品を${results.length}件取得しました`
+        });
+
+    } catch (error) {
+        console.error('❌ 発注必要不足部品リスト取得エラー:', error);
+        res.status(500).json({
+            success: false,
+            message: '発注必要不足部品リストの取得中にエラーが発生しました',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+// ==========================================
 // 2. 仕入先別不足部品サマリー（重要機能）- 修正版
 // GET /api/reports/shortage-parts/by-supplier
 // 権限: 全ユーザー（認証必須）

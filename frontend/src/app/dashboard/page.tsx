@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
 import PermissionGuard from '@/components/guards/PermissionGuard'
 import Button from '@/components/ui/Button'
+import KPICard from '@/components/dashboard/KPICard'
+import AlertCard from '@/components/dashboard/AlertCard'
 
 // ダッシュボードデータの型定義
 interface DashboardData {
@@ -36,91 +38,6 @@ interface DashboardData {
   }
 }
 
-// KPIカードコンポーネント
-interface KPICardProps {
-  title: string
-  value: number
-  unit?: string
-  trend?: 'up' | 'down' | 'neutral'
-  color?: 'blue' | 'green' | 'yellow' | 'red'
-  icon?: string
-  onClick?: () => void
-}
-
-function KPICard({ title, value, unit = '', trend = 'neutral', color = 'blue', icon, onClick }: KPICardProps) {
-  const colorClasses = {
-    blue: 'bg-blue-50 border-blue-200 text-blue-900 hover:bg-blue-100',
-    green: 'bg-green-50 border-green-200 text-green-900 hover:bg-green-100',
-    yellow: 'bg-yellow-50 border-yellow-200 text-yellow-900 hover:bg-yellow-100',
-    red: 'bg-red-50 border-red-200 text-red-900 hover:bg-red-100'
-  }
-
-  const trendIcons = {
-    up: '📈',
-    down: '📉',
-    neutral: '➡️'
-  }
-
-  const CardWrapper = onClick ? 'button' : 'div'
-
-  return (
-    <CardWrapper 
-      className={`rounded-lg border-2 p-6 transition-colors duration-200 ${colorClasses[color]} ${
-        onClick ? 'cursor-pointer text-left w-full' : ''
-      }`}
-      onClick={onClick}
-    >
-      <div className="flex items-center justify-between">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-2">
-            {icon && <span className="text-lg">{icon}</span>}
-            <p className="text-sm font-medium opacity-70">{title}</p>
-          </div>
-          <p className="text-2xl font-bold">
-            {value.toLocaleString()}{unit}
-          </p>
-        </div>
-        <div className="text-xl opacity-50">
-          {trendIcons[trend]}
-        </div>
-      </div>
-    </CardWrapper>
-  )
-}
-
-// アラートカードコンポーネント
-interface AlertCardProps {
-  title: string
-  count: number
-  color: 'red' | 'yellow' | 'blue'
-  icon: string
-  onClick?: () => void
-}
-
-function AlertCard({ title, count, color, icon, onClick }: AlertCardProps) {
-  if (count === 0) return null
-
-  const colorClasses = {
-    red: 'bg-red-50 border-red-200 text-red-800',
-    yellow: 'bg-yellow-50 border-yellow-200 text-yellow-800',
-    blue: 'bg-blue-50 border-blue-200 text-blue-800'
-  }
-
-  return (
-    <div 
-      className={`p-4 rounded-lg border-2 ${colorClasses[color]} ${onClick ? 'cursor-pointer hover:opacity-80' : ''}`}
-      onClick={onClick}
-    >
-      <div className="flex items-center gap-3">
-        <span className="text-2xl">{icon}</span>
-        <div>
-          <p className="font-semibold">{title}</p>
-          <p className="text-sm opacity-75">{count}件</p>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // メインダッシュボードコンテンツ
 function DashboardContent() {
@@ -329,7 +246,7 @@ function DashboardContent() {
             />
             
             <KPICard
-              title="予定入荷"
+              title="入荷予定"
               value={data.summary.scheduled_receipts.total}
               unit="件"
               color="blue"
@@ -381,7 +298,7 @@ function DashboardContent() {
                   </span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                  <span className="text-sm font-medium text-gray-700">💰 不足コスト合計</span>
+                  <span className="text-sm font-medium text-gray-700">💰 不足部品コスト合計</span>
                   <span className="font-bold text-gray-900">
                     ¥{data.summary.shortage_parts.total_cost.toLocaleString()}
                   </span>
@@ -392,7 +309,7 @@ function DashboardContent() {
             {/* 予定入荷詳細 */}
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-gray-900">🚚 予定入荷状況</h2>
+                <h2 className="text-lg font-semibold text-gray-900">🚚 入荷予定状況</h2>
                 <Button size="sm" variant="secondary" onClick={navigateToProcurement}>
                   詳細表示
                 </Button>
@@ -411,7 +328,7 @@ function DashboardContent() {
                   </span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-yellow-50 rounded-lg">
-                  <span className="text-sm font-medium text-gray-700">🚨 緊急入荷</span>
+                  <span className="text-sm font-medium text-gray-700">🚨 入荷間近</span>
                   <span className="font-bold text-yellow-600">
                     {data.summary.scheduled_receipts.urgent}件
                   </span>

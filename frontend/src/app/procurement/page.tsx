@@ -16,6 +16,27 @@ import {
   OrderForm
 } from '@/types/procurement'
 
+// 不足部品の型定義
+interface ShortagePart {
+  part_code: string
+  part_specification: string | null
+  part_category: string | null
+  supplier: string | null
+  unit_price: number | null
+  lead_time_days: number
+  shortage_quantity: number
+  current_stock: number
+  total_reserved_stock: number
+  available_stock: number
+  procurement_due_date: string | null
+  production_start_date: string | null
+  product_codes: string
+  total_production_quantity: number
+  estimated_cost: number
+  total_scheduled_receipts: number
+  additional_order_needed: number
+}
+
 // インポートした型定義を使用
 
 export default function ScheduledReceiptsPage() {
@@ -42,6 +63,12 @@ function ScheduledReceiptsContent() {
   // フィルタリング状態
   const [statusFilter, setStatusFilter] = useState('')
   const [partCodeFilter, setPartCodeFilter] = useState('')
+  
+  // 不足部品一覧の状態
+  const [showShortageList, setShowShortageList] = useState(false)
+  const [shortagePartsList, setShortagePartsList] = useState<ShortagePart[]>([])
+  const [shortageLoading, setShortageLoading] = useState(false)
+  const [shortageError, setShortageError] = useState('')
   
   // モーダル状態
   const [showReceiptModal, setShowReceiptModal] = useState(false)
@@ -122,6 +149,51 @@ function ScheduledReceiptsContent() {
     }
   }
 
+  // 不足部品一覧を取得
+  const fetchShortagePartsList = async () => {
+    try {
+      setShortageLoading(true)
+      setShortageError('')
+      
+      const token = localStorage.getItem('token')
+      const response = await fetch('http://localhost:3000/api/reports/shortage-parts/procurement-needed', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      
+      if (!response.ok) {
+        throw new Error('不足部品一覧の取得に失敗しました')
+      }
+      
+      const result = await response.json()
+      
+      if (result.success && result.data?.shortage_parts) {
+        // APIで既に予定入荷を考慮したフィルタリング済み
+        setShortagePartsList(result.data.shortage_parts)
+      } else {
+        console.error('Unexpected API response:', result)
+        setShortagePartsList([])
+        setShortageError('データの取得に失敗しました')
+      }
+    } catch (err) {
+      console.error('fetchShortagePartsList error:', err)
+      setShortageError(err instanceof Error ? err.message : '不足部品一覧の取得エラー')
+      setShortagePartsList([])
+    } finally {
+      setShortageLoading(false)
+    }
+  }
+
+  // 不足部品一覧の表示切り替え
+  const handleToggleShortageList = () => {
+    const newShowState = !showShortageList
+    setShowShortageList(newShowState)
+    
+    // 表示する場合はデータを取得
+    if (newShowState && shortagePartsList.length === 0) {
+      fetchShortagePartsList()
+    }
+  }
+
   // リセット機能
   const handleReset = async () => {
     setStatusFilter('')
@@ -192,6 +264,18 @@ function ScheduledReceiptsContent() {
       remarks: ''
     })
     setShowReceiptModal(true)
+    setError('')
+  }
+
+  // 不足部品から発注モーダルを開く
+  const openOrderModalFromShortage = (part: ShortagePart) => {
+    setOrderForm({
+      partCode: part.part_code,
+      orderQuantity: part.additional_order_needed.toString(),
+      scheduledDate: '',
+      remarks: `不足部品からの発注 - 調達期限: ${part.procurement_due_date ? new Date(part.procurement_due_date).toLocaleDateString('ja-JP') : '未設定'}`
+    })
+    setShowOrderModal(true)
     setError('')
   }
 
@@ -474,8 +558,120 @@ function ScheduledReceiptsContent() {
           onPartCodeChange={setPartCodeFilter}
           onReset={handleReset}
           onNewOrder={() => setShowOrderModal(true)}
+          onToggleShortageList={handleToggleShortageList}
+          showShortageList={showShortageList}
           canEdit={canEdit}
         />
+
+        {/* 不足部品一覧 */}
+        {showShortageList && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  ⚠️ 不足部品一覧 ({shortagePartsList.length}件)
+                </h2>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={fetchShortagePartsList}
+                  disabled={shortageLoading}
+                >
+                  {shortageLoading ? '更新中...' : '🔄 更新'}
+                </Button>
+              </div>
+            </div>
+
+            {/* エラー表示 */}
+            {shortageError && (
+              <div className="px-6 py-4 bg-red-50 border-b border-red-200">
+                <p className="text-red-600 text-sm">⚠️ {shortageError}</p>
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              {shortageLoading ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                  <p className="text-gray-600 mt-2">読み込み中...</p>
+                </div>
+              ) : shortagePartsList.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-gray-600">不足部品はありません</p>
+                </div>
+              ) : (
+                <table className="min-w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        操作
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        部品コード
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        仕様
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        仕入先
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        総不足数量
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        発注必要数量
+                      </th>
+                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        現在庫数
+                      </th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        調達期限
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {shortagePartsList.map((part: ShortagePart) => (
+                      <tr key={part.part_code} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <ProcurementEditGuard>
+                            <Button
+                              size="sm"
+                              onClick={() => openOrderModalFromShortage(part)}
+                              className="bg-orange-600 hover:bg-orange-700"
+                            >
+                              発注
+                            </Button>
+                          </ProcurementEditGuard>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {part.part_code}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          {part.part_specification || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {part.supplier || '未設定'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 text-right">
+                          {part.shortage_quantity}個
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-red-600 text-right">
+                          {part.additional_order_needed}個
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                          {part.current_stock}個
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {part.procurement_due_date ? new Date(part.procurement_due_date).toLocaleDateString('ja-JP') : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* 調達管理テーブル */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200">
@@ -534,8 +730,28 @@ function ScheduledReceiptsContent() {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredReceipts.map((receipt) => (
-                    <tr key={receipt.id} className="hover:bg-gray-50">
+                  {filteredReceipts.map((receipt) => {
+                    // 行の背景色を決定
+                    const getRowBackgroundColor = () => {
+                      if (receipt.status === '入荷予定' && receipt.scheduled_date) {
+                        const today = new Date()
+                        const scheduledDate = new Date(receipt.scheduled_date)
+                        const daysDiff = Math.floor((scheduledDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+                        
+                        // 遅延している（過去の日付）
+                        if (daysDiff < 0) {
+                          return 'bg-red-50 hover:bg-red-100'
+                        }
+                        // 3日以内の入荷予定（入荷間近）
+                        else if (daysDiff <= 3) {
+                          return 'bg-green-50 hover:bg-green-100'
+                        }
+                      }
+                      return 'hover:bg-gray-50'
+                    }
+
+                    return (
+                      <tr key={receipt.id} className={getRowBackgroundColor()}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm space-x-2">
                         {receipt.status === '納期回答待ち' && (
                           <ProcurementEditGuard>
@@ -593,13 +809,14 @@ function ScheduledReceiptsContent() {
                         {receipt.scheduled_quantity ? `${receipt.scheduled_quantity}個` : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {receipt.scheduled_date || '-'}
+                        {receipt.scheduled_date ? new Date(receipt.scheduled_date).toLocaleDateString('ja-JP') : '-'}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <StatusBadge status={receipt.status} />
                       </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
             )}
