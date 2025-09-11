@@ -11,10 +11,7 @@ export interface ProductionPlan {
   created_by: string
   created_at: string
   updated_at: string
-  // 所要量計算結果（追加情報）
-  total_parts_count?: number
-  shortage_parts_count?: number
-  has_shortage?: boolean
+  has_shortage: boolean // ★ リファクタリングで追加
 }
 
 // 製品マスタの型定義

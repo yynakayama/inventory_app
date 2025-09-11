@@ -93,7 +93,7 @@ SELECT
          FROM production_plan_requirements other_ppr 
          WHERE other_ppr.part_code = ppr.part_code 
          AND other_ppr.plan_id != ppr.plan_id
-         AND other_ppr.plan_status IN ('計画', '生産中')
+         AND other_ppr.plan_status = '計画'
          AND other_ppr.start_date < ppr.start_date), 0
     ) as total_reserved_stock,
     COALESCE(ir.reserved_quantity, 0) as plan_reserved_quantity,
@@ -121,7 +121,7 @@ SELECT
          FROM production_plan_requirements other_ppr 
          WHERE other_ppr.part_code = ppr.part_code 
          AND other_ppr.plan_id != ppr.plan_id
-         AND other_ppr.plan_status IN ('計画', '生産中')
+         AND other_ppr.plan_status = '計画'
          AND other_ppr.start_date < ppr.start_date), 0
      )
     ) as available_stock,
@@ -141,7 +141,7 @@ SELECT
          FROM production_plan_requirements other_ppr 
          WHERE other_ppr.part_code = ppr.part_code 
          AND other_ppr.plan_id != ppr.plan_id
-         AND other_ppr.plan_status IN ('計画', '生産中')
+         AND other_ppr.plan_status = '計画'
          AND other_ppr.start_date < ppr.start_date), 0
       )
      )

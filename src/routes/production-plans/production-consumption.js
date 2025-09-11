@@ -146,15 +146,17 @@ router.post('/:id/start-production', requireProductionAccess, async (req, res) =
 
             // 在庫履歴記録
             await connection.execute(
-                `INSERT INTO inventory_history 
-                (part_code, change_type, quantity_before, quantity_after, quantity_changed, reason, created_by) 
-                VALUES (?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO inventory_transactions 
+                (part_code, transaction_type, quantity, before_stock, after_stock, reference_id, reference_type, remarks, created_by) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                     part_code,
-                    '消費',
+                    '出庫',
+                    -required_quantity,
                     currentStock,
                     newStock,
-                    -required_quantity,
+                    planId,
+                    'production_plan',
                     `生産開始による部材消費 (計画ID: ${planId}, 製品: ${planInfo.product_code})`,
                     req.user.username
                 ]
@@ -177,10 +179,8 @@ router.post('/:id/start-production', requireProductionAccess, async (req, res) =
         );
 
         // 6. 在庫予約をクリア（消費したので予約は不要）
-        await connection.execute(
-            'DELETE FROM inventory_reservations WHERE production_plan_id = ?',
-            [planId]
-        );
+        const { deleteReservations } = require('./reservation-manager');
+        await deleteReservations(connection, planId);
 
         await connection.commit();
 

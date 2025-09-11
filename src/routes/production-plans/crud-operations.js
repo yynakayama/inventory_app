@@ -14,6 +14,23 @@ const {
     requireProductionAccess 
 } = require('../../middleware/auth');
 
+// ★★★ リファクタリングで追加 ★★★
+// 所要量計算の簡易版。部材不足の有無のみをチェックする。
+async function checkShortageForPlan(connection, planId) {
+    const [requirements] = await connection.execute(
+        `SELECT shortage_quantity FROM inventory_sufficiency_check WHERE plan_id = ?`,
+        [planId]
+    );
+    // BOMが未設定、または所要量計算ビューが結果を返さない場合
+    if (requirements.length === 0) {
+        return false;
+    }
+    // 1つでも不足数量が0より大きい部品があればtrueを返す
+    const hasShortage = requirements.some(req => req.shortage_quantity > 0);
+    return hasShortage;
+}
+// ★★★ ここまで ★★★
+
 // ==========================================
 // 1. 生産計画一覧取得（全認証ユーザー可）
 // GET /api/plans
@@ -24,7 +41,6 @@ router.get('/', requireReadAccess, async (req, res) => {
     try {
         console.log(`[${new Date().toISOString()}] 📋 生産計画一覧取得開始: ユーザー=${req.user.username} (${req.user.role})`);
         
-        // クエリパラメータを取得
         const {
             product_code,
             status,
@@ -34,52 +50,31 @@ router.get('/', requireReadAccess, async (req, res) => {
             exclude_completed
         } = req.query;
         
-        console.log('🔍 検索フィルター:', {
-            product_code,
-            status,
-            building_no,
-            start_date_from,
-            start_date_to,
-            exclude_completed
-        });
-        
         connection = await req.mysql.createConnection(req.dbConfig);
         
-        // WHERE句の条件を構築
         let whereConditions = ["pp.status != 'キャンセル'"];
         let queryParams = [];
         
-        // 製品コードフィルター
         if (product_code) {
             whereConditions.push("pp.product_code = ?");
             queryParams.push(product_code);
         }
-        
-        // ステータスフィルター
         if (status) {
             whereConditions.push("pp.status = ?");
             queryParams.push(status);
         }
-        
-        // 棟番号フィルター
         if (building_no) {
             whereConditions.push("pp.building_no LIKE ?");
             queryParams.push(`%${building_no}%`);
         }
-        
-        // 開始日フィルター（From）
         if (start_date_from) {
             whereConditions.push("pp.start_date >= ?");
             queryParams.push(start_date_from);
         }
-        
-        // 開始日フィルター（To）
         if (start_date_to) {
             whereConditions.push("pp.start_date <= ?");
             queryParams.push(start_date_to);
         }
-        
-        // 完了した製品の除外フィルター
         if (exclude_completed === 'true') {
             whereConditions.push("pp.status != '完了'");
         }
@@ -88,29 +83,17 @@ router.get('/', requireReadAccess, async (req, res) => {
         
         const query = `
             SELECT 
-                pp.id,
-                pp.building_no,
-                pp.product_code,
-                pp.planned_quantity,
-                pp.start_date,
-                pp.status,
-                pp.remarks,
-                pp.created_by,
-                pp.created_at,
-                pp.updated_at,
-                p.remarks as product_remarks
+                pp.id, pp.building_no, pp.product_code, pp.planned_quantity,
+                pp.start_date, pp.status, pp.remarks, pp.created_by,
+                pp.created_at, pp.updated_at, p.remarks as product_remarks
             FROM production_plans pp
             LEFT JOIN products p ON pp.product_code = p.product_code
             WHERE ${whereClause}
             ORDER BY pp.start_date DESC, pp.created_at DESC
         `;
 
-        console.log('🔍 実行SQL:', query);
-        console.log('🔍 パラメータ:', queryParams);
-
         const [results] = await connection.execute(query, queryParams);
 
-        // 日付フォーマット調整
         const formattedResults = results.map(plan => ({
             ...plan,
             start_date: plan.start_date ? plan.start_date.toISOString().split('T')[0] : null,
@@ -118,13 +101,27 @@ router.get('/', requireReadAccess, async (req, res) => {
             updated_at: plan.updated_at ? plan.updated_at.toISOString() : null
         }));
 
-        console.log(`✅ 生産計画一覧取得完了: ${formattedResults.length}件`);
+        // ★★★ リファクタリングによる修正箇所 ★★★
+        const plansWithShortageInfo = await Promise.all(
+            formattedResults.map(async (plan) => {
+                // 「計画」ステータスの場合のみ不足チェックを実行
+                // 「生産中」は既に部材を消費済みなので不足チェック不要
+                if (plan.status === '計画') {
+                    const hasShortage = await checkShortageForPlan(connection, plan.id);
+                    return { ...plan, has_shortage: hasShortage };
+                }
+                return { ...plan, has_shortage: false };
+            })
+        );
+        // ★★★ ここまで ★★★
+
+        console.log(`✅ 生産計画一覧取得完了: ${plansWithShortageInfo.length}件`);
         
         res.json({
             success: true,
-            data: formattedResults,
-            count: formattedResults.length,
-            message: `生産計画一覧を${formattedResults.length}件取得しました`
+            data: plansWithShortageInfo, // 修正：フラグ付きのデータを返す
+            count: plansWithShortageInfo.length,
+            message: `生産計画一覧を${plansWithShortageInfo.length}件取得しました`
         });
 
     } catch (error) {
