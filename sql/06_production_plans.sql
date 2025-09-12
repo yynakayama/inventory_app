@@ -72,7 +72,7 @@ SELECT
     pp.created_at as plan_created_at
 FROM production_plans pp
     INNER JOIN bom_requirements br ON pp.product_code = br.product_code
-WHERE pp.status IN ('計画', '生産中')
+WHERE pp.status = '計画'
 ORDER BY pp.id, br.process_group, br.station_code, br.part_code;
 
 -- 4. 在庫充足性チェック用VIEW作成
@@ -184,7 +184,7 @@ SELECT
     'test_user'
 FROM production_plan_requirements ppr
 JOIN production_plans pp ON ppr.plan_id = pp.id
-WHERE pp.status IN ('計画', '生産中');
+WHERE pp.status = '計画';
 
 -- 7. 在庫テーブルの予約在庫数を更新（全部品対象）
 -- 注意: 実際の運用では、APIを通じて自動的に更新されます
@@ -221,7 +221,7 @@ SELECT
 FROM production_plan_requirements ppr
 LEFT JOIN inventory_reservations ir ON ppr.plan_id = ir.production_plan_id AND ppr.part_code = ir.part_code
 JOIN production_plans pp ON ppr.plan_id = pp.id
-WHERE pp.status IN ('計画', '生産中')
+WHERE pp.status = '計画'
 ORDER BY ppr.plan_id, ppr.part_code;
 
 -- 9. VIEW動作確認用クエリ

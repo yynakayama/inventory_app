@@ -190,8 +190,8 @@ async function updateReservations(connection, planId, productCode, plannedQuanti
         // 1. 既存予約を削除
         const deleteResult = await deleteReservations(connection, planId);
         
-        // 2. 新しいステータスが計画・生産中の場合は新しい予約を作成
-        if (status === '計画' || status === '生産中') {
+        // 2. 新しいステータスが計画の場合は新しい予約を作成
+        if (status === '計画') {
             console.log(`📝 新しい予約作成: ステータス「${status}」のため予約を作成します`);
             
             const createResult = await createReservations(connection, planId, productCode, plannedQuantity, updatedBy);
@@ -205,7 +205,7 @@ async function updateReservations(connection, planId, productCode, plannedQuanti
                 message: `生産計画が更新され、在庫予約も更新されました（削除:${deleteResult.deleted_count}件、作成:${createResult.length}件）`
             };
         } else {
-            // 完了・キャンセルステータスの場合は予約削除のみ
+            // 生産中・完了・キャンセルステータスの場合は予約削除のみ
             console.log(`🚫 予約削除のみ: ステータス「${status}」のため新しい予約は作成しません`);
             
             return {
