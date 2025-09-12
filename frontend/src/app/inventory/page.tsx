@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
 import { InventoryEditGuard, usePermissionCheck } from '@/components/guards/PermissionGuard'
 import PartCodeSelector from '@/components/ui/PartCodeSelector'
+import { getConditionalRowColor } from '@/utils/tableRowColors'
 
 // 在庫データの型定義
 interface InventoryItem {
@@ -890,7 +891,11 @@ function InventoryListContent() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {inventoryData.map((item) => (
-                  <tr key={item.part_code} className="hover:bg-gray-50">
+                  <tr key={item.part_code} className={getConditionalRowColor(
+                    item.available_stock < 0, // 緊急条件（生産不足）
+                    'danger', // 緊急時の色（赤）
+                    item.is_low_stock ? 'warning' : 'normal' // 警告または通常
+                  )}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div 
                         className="text-sm font-medium text-blue-600 hover:text-blue-800 cursor-pointer"
