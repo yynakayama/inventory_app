@@ -24,8 +24,10 @@
 | 機能 | admin | production_manager | material_staff | viewer |
 |------|-------|-------------------|----------------|--------|
 | 部品マスター参照 | ✅ | ✅ | ✅ | ✅ |
+| 部品マスター新規登録 | ✅ | ✅ | ❌ | ❌ |
 | 部品マスター編集 | ✅ | ✅ | ❌ | ❌ |
-| 製品・BOM参照 | ✅ | ✅ | ❌ | ✅ |
+| 部品マスター有効/無効 | ✅ | ❌ | ❌ | ❌ |
+| 製品・BOM参照 | ✅ | ✅ | ✅ | ✅ |
 | 製品・BOM編集 | ✅ | ✅ | ❌ | ❌ |
 | ユーザー管理 | ✅ | ❌ | ❌ | ❌ |
 
@@ -48,9 +50,11 @@ GET /api/parts
 **権限**: 全ユーザー（認証必須）
 
 **クエリパラメータ**:
-- `search` (string, optional): 部品コードまたは仕様での検索
+- `search` (string, optional): 部品コードまたは仕様での横断検索
 - `category` (string, optional): カテゴリフィルター
-- `limit` (number, optional): 取得件数制限（デフォルト: 100, 最大: 1000）
+- `supplier` (string, optional): 仕入先フィルター
+- `is_active` (boolean, optional): 有効/無効フィルター
+- `limit` (number, optional): 取得件数制限（デフォルト: 50, 最大: 500）
 
 **レスポンス例**:
 ```json
@@ -66,6 +70,8 @@ GET /api/parts
       "supplier": "ABC商事",
       "category": "MECH",
       "unit_price": 50.00,
+      "remarks": "備考",
+      "is_active": true,
       "created_at": "2024-01-01T00:00:00.000Z",
       "updated_at": "2024-01-01T00:00:00.000Z"
     }
@@ -250,7 +256,7 @@ GET /api/users
 - `search` (string, optional): ユーザー名またはメールアドレスでの検索
 - `role` (string, optional): 権限レベルでのフィルター
 - `is_active` (boolean, optional): アクティブ状態でのフィルター
-- `limit` (number, optional): 取得件数制限（デフォルト: 50, 最大: 200）
+- `limit` (number, optional): 取得件数制限（デフォルト: 50, 最大: 500）
 
 **レスポンス例**:
 ```json
@@ -316,7 +322,7 @@ POST /api/users
 }
 ```
 
-**注意**: `email`は省略可能です。省略した場合はnullで保存されます。
+**注意**: `email`は任意項目です。省略した場合はnullで保存されます。設定を推奨しますが必須ではありません。
 
 **バリデーション**:
 - `username`: 必須、3-50文字、英数字とアンダースコアのみ、重複不可
