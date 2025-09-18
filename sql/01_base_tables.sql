@@ -19,7 +19,7 @@ INSERT INTO connection_test (test_message) VALUES ('データベース初期化�
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY COMMENT 'ユーザーID',
     username VARCHAR(50) NOT NULL UNIQUE COMMENT 'ユーザー名',
-    email VARCHAR(100) NOT NULL UNIQUE COMMENT 'メールアドレス',
+    email VARCHAR(100) NULL UNIQUE COMMENT 'メールアドレス（任意）',
     password_hash VARCHAR(255) NOT NULL COMMENT 'パスワードハッシュ',
     role ENUM('admin', 'production_manager', 'material_staff', 'viewer') 
          DEFAULT 'viewer' COMMENT '権限レベル',
@@ -39,8 +39,8 @@ CREATE TABLE IF NOT EXISTS users (
 INSERT INTO users (username, email, password_hash, role) VALUES 
 ('admin', 'admin@example.com', 'temp_password_hash', 'admin'),
 ('production_mgr', 'production@example.com', 'temp_password_hash', 'production_manager'),
-('material_staff', 'material@example.com', 'temp_password_hash', 'material_staff'),
-('viewer_user', 'viewer@example.com', 'temp_password_hash', 'viewer')
+('material_staff', NULL, 'temp_password_hash', 'material_staff'),
+('viewer_user', NULL, 'temp_password_hash', 'viewer')
 ON DUPLICATE KEY UPDATE
     email = VALUES(email),
     role = VALUES(role),
