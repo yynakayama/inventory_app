@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/providers/AuthProvider'
 import Button from '@/components/ui/Button'
 import Modal from '@/components/ui/Modal'
@@ -50,6 +50,7 @@ export default function PartsPage() {
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isSearching, setIsSearching] = useState(false)
 
   // モーダル状態
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -69,12 +70,21 @@ export default function PartsPage() {
     remarks: ''
   })
 
-  // 検索フィルター
-  const [filters, setFilters] = useState<SearchFilters>({
+  // 検索フィルター（状態分離）
+  const [inputFilters, setInputFilters] = useState<SearchFilters>({
     search: '',
     category: '',
     supplier: ''
   })
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>({
+    search: '',
+    category: '',
+    supplier: ''
+  })
+
+  // 検索入力フィールドのref
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const supplierInputRef = useRef<HTMLInputElement | null>(null)
 
   // APIベースURL
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -82,9 +92,10 @@ export default function PartsPage() {
   // 部品一覧取得
   const fetchParts = async () => {
     try {
+      setIsSearching(true)
       const params = new URLSearchParams()
-      if (filters.search) params.append('search', filters.search)
-      if (filters.category) params.append('category', filters.category)
+      if (searchFilters.search) params.append('search', searchFilters.search)
+      if (searchFilters.category) params.append('category', searchFilters.category)
       params.append('limit', '500')
 
       const response = await fetch(`${API_BASE}/api/parts?${params}`, {
@@ -103,6 +114,18 @@ export default function PartsPage() {
     } catch (error) {
       console.error('部品一覧取得エラー:', error)
       setError(error instanceof Error ? error.message : '部品一覧の取得に失敗しました')
+    } finally {
+      setIsSearching(false)
+      // フォーカス復元（少し遅延させる）
+      setTimeout(() => {
+        const activeElement = document.activeElement?.tagName
+        // フォーカスが失われている場合のみ復元
+        if (!activeElement || activeElement === 'BODY') {
+          if (searchInputRef.current) {
+            searchInputRef.current.focus()
+          }
+        }
+      }, 100)
     }
   }
 
@@ -122,18 +145,44 @@ export default function PartsPage() {
     }
   }
 
+  // debounce処理（300ms遅延）
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchFilters(inputFilters)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [inputFilters])
+
   // 初期データ取得
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
-      await Promise.all([fetchParts(), fetchCategories()])
+      await fetchCategories()
       setLoading(false)
     }
 
     if (token) {
       loadData()
     }
-  }, [token, filters])
+  }, [token])
+
+  // 検索実行（searchFiltersが変更された時）
+  useEffect(() => {
+    if (token) {
+      fetchParts()
+    }
+  }, [token, searchFilters])
+
+  // リセット機能
+  const handleReset = () => {
+    setInputFilters({
+      search: '',
+      category: '',
+      supplier: ''
+    })
+    // searchFiltersは自動的にdebounceで更新される
+  }
 
   // フォームリセット
   const resetForm = () => {
@@ -260,16 +309,9 @@ export default function PartsPage() {
   return (
     <div className="space-y-6">
       {/* ページヘッダー */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">部品マスター管理</h1>
-          <p className="text-gray-600">部品の基本情報を管理します</p>
-        </div>
-        {canEdit && (
-          <Button onClick={handleCreate}>
-            ➕ 新規登録
-          </Button>
-        )}
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">部品マスター管理</h1>
+        <p className="text-gray-600">部品の基本情報を管理します</p>
       </div>
 
       {/* エラー表示 */}
@@ -286,48 +328,88 @@ export default function PartsPage() {
       )}
 
       {/* 検索フィルター */}
-      <div className="bg-white p-4 rounded-lg border border-gray-200">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              検索（部品コード・仕様）
-            </label>
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(e) => setFilters({...filters, search: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="部品コードまたは仕様で検索"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              カテゴリ
-            </label>
-            <select
-              value={filters.category}
-              onChange={(e) => setFilters({...filters, category: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-            >
-              <option value="">全て</option>
-              {categories.map(cat => (
-                <option key={cat.category_code} value={cat.category_code}>
-                  {cat.category_name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              仕入先
-            </label>
-            <input
-              type="text"
-              value={filters.supplier}
-              onChange={(e) => setFilters({...filters, supplier: e.target.value})}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-              placeholder="仕入先名"
-            />
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+        <div className="px-6 py-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            {/* アクションボタン */}
+            <div className="flex gap-3">
+              {canEdit && (
+                <Button onClick={handleCreate}>
+                  ➕ 新規登録
+                </Button>
+              )}
+              {isSearching && (
+                <div className="flex items-center text-blue-600">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                  <span className="text-sm">検索中...</span>
+                </div>
+              )}
+            </div>
+
+            {/* フィルター */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 flex-1 lg:max-w-3xl">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  検索（部品コード・仕様）
+                </label>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={inputFilters.search}
+                  onChange={(e) => setInputFilters({...inputFilters, search: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="部品コードまたは仕様で検索"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  カテゴリ
+                </label>
+                <select
+                  value={inputFilters.category}
+                  onChange={(e) => setInputFilters({...inputFilters, category: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">全て</option>
+                  {categories.map(cat => (
+                    <option key={cat.category_code} value={cat.category_code}>
+                      {cat.category_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  仕入先
+                </label>
+                <input
+                  ref={supplierInputRef}
+                  type="text"
+                  value={inputFilters.supplier}
+                  onChange={(e) => setInputFilters({...inputFilters, supplier: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="仕入先名"
+                />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  操作
+                </label>
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    onClick={handleReset}
+                    disabled={isSearching}
+                    className="flex-1"
+                  >
+                    🔄 リセット
+                  </Button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

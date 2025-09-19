@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
 import Button from '@/components/ui/Button'
@@ -40,14 +40,24 @@ function ProductionPlansContent() {
   const [error, setError] = useState('')
   
   
-  // フィルタリング状態
-  const [filters, setFilters] = useState<SearchFilters>({
+  // フィルタリング状態（状態分離）
+  const [inputFilters, setInputFilters] = useState<SearchFilters>({
     product_code: '',
     status: '',
     building_no: '',
     date_from: '',
     date_to: ''
   })
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>({
+    product_code: '',
+    status: '',
+    building_no: '',
+    date_from: '',
+    date_to: ''
+  })
+
+  // 検索入力フィールドのref
+  const productCodeInputRef = useRef<HTMLInputElement | null>(null)
   
   // モーダル状態
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -63,15 +73,28 @@ function ProductionPlansContent() {
     remarks: ''
   })
 
+  // debounce処理（300ms遅延）
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchFilters(inputFilters)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [inputFilters])
+
   // 初期化
   useEffect(() => {
-    fetchProductionPlans()
     fetchProducts()
-    
+
     // デフォルトの開始日を今日に設定
     const today = new Date().toISOString().split('T')[0]
     setPlanForm(prev => ({ ...prev, start_date: today }))
   }, [])
+
+  // 検索実行（searchFiltersが変更された時）
+  useEffect(() => {
+    fetchProductionPlans(searchFilters)
+  }, [searchFilters])
 
   // 生産計画一覧を取得
   const fetchProductionPlans = async (searchFilters?: SearchFilters) => {
@@ -84,8 +107,14 @@ function ProductionPlansContent() {
         throw new Error('認証トークンが見つかりません')
       }
 
-      // 検索フィルタ: 引数で渡されたものを優先、なければ現在のfiltersを使用
-      const currentFilters = searchFilters || filters
+      // 検索フィルタ: 引数で渡されたものを使用
+      const currentFilters = searchFilters || {
+        product_code: '',
+        status: '',
+        building_no: '',
+        date_from: '',
+        date_to: ''
+      }
 
       // 修正: クエリパラメータ構築（バックエンドAPIが期待するパラメータ名に合わせる）
       const params = new URLSearchParams()
@@ -130,6 +159,16 @@ function ProductionPlansContent() {
       setError(err instanceof Error ? err.message : '不明なエラーが発生しました')
     } finally {
       setLoading(false)
+      // フォーカス復元（少し遅延させる）
+      setTimeout(() => {
+        const activeElement = document.activeElement?.tagName
+        // フォーカスが失われている場合のみ復元
+        if (!activeElement || activeElement === 'BODY') {
+          if (productCodeInputRef.current) {
+            productCodeInputRef.current.focus()
+          }
+        }
+      }, 100)
     }
   }
 
@@ -151,28 +190,16 @@ function ProductionPlansContent() {
     }
   }
 
-  // 検索実行
-  const handleSearch = () => {
-    console.log('🔍 検索ボタンクリック - 現在のフィルター:', filters)
-    fetchProductionPlans(filters)
-  }
-
   // フィルタリセット
   const handleReset = () => {
-    const resetFilters = {
+    setInputFilters({
       product_code: '',
       status: '',
       building_no: '',
       date_from: '',
       date_to: ''
-    }
-    console.log('🔄 フィルターリセット')
-    setFilters(resetFilters)
-    
-    // リセット後は自動で再検索
-    setTimeout(() => {
-      fetchProductionPlans(resetFilters)
-    }, 100)
+    })
+    // searchFiltersは自動的にdebounceで更新される
   }
 
   // 新規計画作成
@@ -492,11 +519,12 @@ function ProductionPlansContent() {
 
       {/* 検索・フィルター */}
       <SearchFiltersComponent
-        filters={filters}
-        onFiltersChange={setFilters}
+        filters={inputFilters}
+        onFiltersChange={setInputFilters}
         products={products}
-        onSearch={handleSearch}
         onReset={handleReset}
+        productCodeInputRef={productCodeInputRef}
+        isSearching={loading}
       />
 
       {/* 生産計画テーブル */}

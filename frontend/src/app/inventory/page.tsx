@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
 import { InventoryEditGuard, usePermissionCheck } from '@/components/guards/PermissionGuard'
 import PartCodeSelector from '@/components/ui/PartCodeSelector'
+import Button from '@/components/ui/Button'
 import { getConditionalRowColor } from '@/utils/tableRowColors'
 
 // 在庫データの型定義
@@ -125,11 +126,12 @@ interface SearchFiltersProps {
   filters: SearchFilters
   onFiltersChange: (filters: SearchFilters) => void
   categories: Category[]
-  onSearch: () => void
   onReset: () => void
+  searchInputRef?: React.RefObject<HTMLInputElement | null>
+  isSearching?: boolean
 }
 
-function SearchFiltersComponent({ filters, onFiltersChange, categories, onSearch, onReset }: SearchFiltersProps) {
+function SearchFiltersComponent({ filters, onFiltersChange, categories, onReset, searchInputRef, isSearching = false }: SearchFiltersProps) {
   return (
     <div className="bg-white rounded-lg shadow p-4 mb-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -138,11 +140,13 @@ function SearchFiltersComponent({ filters, onFiltersChange, categories, onSearch
            <label className="block text-sm font-medium text-gray-700 mb-1">
              部品コード
            </label>
-           <PartCodeSelector
+           <input
+             ref={searchInputRef}
+             type="text"
              value={filters.search}
-             onChange={(value) => onFiltersChange({ ...filters, search: value })}
+             onChange={(e) => onFiltersChange({ ...filters, search: e.target.value })}
              placeholder="部品コード・仕様で検索"
-             className="w-full"
+             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
            />
          </div>
 
@@ -194,18 +198,18 @@ function SearchFiltersComponent({ filters, onFiltersChange, categories, onSearch
 
         {/* 操作ボタン */}
         <div className="flex flex-col justify-end space-y-2">
-          <button
-            onClick={onSearch}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            🔍 検索
-          </button>
-          <button
+          {isSearching && (
+            <div className="flex items-center text-blue-600 justify-center">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+              <span className="text-sm">検索中...</span>
+            </div>
+          )}
+          <Button
+            variant="secondary"
             onClick={onReset}
-            className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
           >
-            リセット
-          </button>
+            🔄 リセット
+          </Button>
         </div>
       </div>
     </div>
@@ -221,13 +225,22 @@ function InventoryListContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  // 検索フィルタ状態
-  const [filters, setFilters] = useState<SearchFilters>({
+  // 検索フィルタ状態（状態分離）
+  const [inputFilters, setInputFilters] = useState<SearchFilters>({
     search: '',
     category: '',
     low_stock: false,
     shortage_only: false
   })
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>({
+    search: '',
+    category: '',
+    low_stock: false,
+    shortage_only: false
+  })
+
+  // 検索入力フィールドのref
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
 
   // 棚卸機能の状態
   const [showStocktaking, setShowStocktaking] = useState(false)
@@ -252,6 +265,15 @@ function InventoryListContent() {
     remarks: ''
   })
   const [adjustmentLoading, setAdjustmentLoading] = useState(false)
+
+  // debounce処理（300ms遅延）
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchFilters(inputFilters)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [inputFilters])
 
   // カテゴリデータ取得（認証不要）
   useEffect(() => {
@@ -283,13 +305,13 @@ function InventoryListContent() {
 
       // クエリパラメータ構築
       const params = new URLSearchParams()
-      if (filters.search.trim()) {
-        params.append('search', filters.search.trim())
+      if (searchFilters.search.trim()) {
+        params.append('search', searchFilters.search.trim())
       }
-      if (filters.category) {
-        params.append('category', filters.category)
+      if (searchFilters.category) {
+        params.append('category', searchFilters.category)
       }
-      if (filters.low_stock) {
+      if (searchFilters.low_stock) {
         params.append('low_stock', 'true')
       }
 
@@ -310,7 +332,7 @@ function InventoryListContent() {
         let data = result.data || []
         
         // フロントエンド側で生産不足フィルタを適用
-        if (filters.shortage_only) {
+        if (searchFilters.shortage_only) {
           data = data.filter((item: InventoryItem) => item.available_stock < 0)
         }
         
@@ -324,37 +346,41 @@ function InventoryListContent() {
       setError(err instanceof Error ? err.message : '不明なエラーが発生しました')
     } finally {
       setLoading(false)
+      // フォーカス復元（少し遅延させる）
+      setTimeout(() => {
+        const activeElement = document.activeElement?.tagName
+        // フォーカスが失われている場合のみ復元
+        if (!activeElement || activeElement === 'BODY') {
+          if (searchInputRef.current) {
+            searchInputRef.current.focus()
+          }
+        }
+      }, 100)
     }
   }
 
   // 初回データ取得
   useEffect(() => {
-    fetchInventoryData()
-    
     // URLパラメータで棚卸機能を自動的に開く
     if (searchParams.get('stocktaking') === 'true') {
       setShowStocktaking(true)
     }
   }, [searchParams])
 
-  // 検索実行
-  const handleSearch = () => {
+  // 検索実行（searchFiltersが変更された時）
+  useEffect(() => {
     fetchInventoryData()
-  }
+  }, [searchFilters])
 
   // フィルタリセット
   const handleReset = () => {
-    setFilters({
+    setInputFilters({
       search: '',
       category: '',
       low_stock: false,
       shortage_only: false
     })
-    
-    // リセット後は自動で再検索
-    setTimeout(() => {
-      fetchInventoryData()
-    }, 100)
+    // searchFiltersは自動的にdebounceで更新される
   }
 
   // 棚卸アイテム追加
@@ -645,12 +671,13 @@ function InventoryListContent() {
             データ取得エラー
           </h2>
           <p className="text-red-700">{error}</p>
-          <button 
+          <Button 
+            variant="danger"
             onClick={fetchInventoryData} 
-            className="mt-4 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+            className="mt-4"
           >
             再試行
-          </button>
+          </Button>
         </div>
       </div>
     )
@@ -674,12 +701,11 @@ function InventoryListContent() {
             >
               {showStocktaking ? '📋 棚卸を閉じる' : '📋 棚卸'}
             </button>
-            <button
+            <Button
               onClick={syncReservations}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               🔄 予約データ同期
-            </button>
+            </Button>
           </InventoryEditGuard>
           <div className="text-sm text-gray-500">
             最終更新: {new Date().toLocaleString('ja-JP')}
@@ -715,12 +741,12 @@ function InventoryListContent() {
                </span>
              </div>
              <div className="flex gap-2">
-               <button
+               <Button
                  onClick={addStocktakingItem}
-                 className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                 size="sm"
                >
                  ➕ 部品追加
-               </button>
+               </Button>
                <button
                  onClick={executeStocktaking}
                  disabled={stocktakingLoading || stocktakingItems.length === 0}
@@ -839,11 +865,12 @@ function InventoryListContent() {
 
       {/* 検索・フィルタ */}
       <SearchFiltersComponent
-        filters={filters}
-        onFiltersChange={setFilters}
+        filters={inputFilters}
+        onFiltersChange={setInputFilters}
         categories={categories}
-        onSearch={handleSearch}
         onReset={handleReset}
+        searchInputRef={searchInputRef}
+        isSearching={loading}
       />
 
       {/* データテーブル */}
@@ -937,7 +964,7 @@ function InventoryListContent() {
                     </td>
                                                              <td className="px-6 py-4 whitespace-nowrap text-center">
                       <InventoryEditGuard>
-                        <button
+                        <Button
                           onClick={() => {
                             setShowStocktaking(true)
                             // 既に追加されているかチェック
@@ -959,10 +986,10 @@ function InventoryListContent() {
                               alert(`${item.part_code} は既に棚卸対象に追加されています`)
                             }
                           }}
-                          className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          size="sm"
                         >
                           📋 棚卸
-                        </button>
+                        </Button>
                       </InventoryEditGuard>
                     </td>
                   </tr>
@@ -1124,12 +1151,12 @@ function InventoryListContent() {
                 <div>
                   <div className="flex justify-between items-center mb-4">
                     <h4 className="text-md font-semibold text-gray-900">入出庫履歴</h4>
-                    <button
+                    <Button
                       onClick={() => fetchPartHistory(selectedPartCode)}
-                      className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                      size="sm"
                     >
                       🔄 更新
-                    </button>
+                    </Button>
                   </div>
                   
                   {historyLoading ? (
@@ -1278,14 +1305,14 @@ function InventoryListContent() {
                           />
                         </div>
 
-                        <button
+                        <Button
                           onClick={executeAdjustment}
                           disabled={adjustmentLoading || !adjustmentForm.quantity}
-                          className="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                          className="w-full"
+                          isLoading={adjustmentLoading}
                         >
-                          {adjustmentLoading ? '処理中...' : 
-                           `${adjustmentForm.transaction_type === 'receipt' ? '📥 入庫実行' : '📤 出庫実行'}`}
-                        </button>
+                          {adjustmentForm.transaction_type === 'receipt' ? '📥 入庫実行' : '📤 出庫実行'}
+                        </Button>
                       </div>
 
                       {/* 現在の在庫状況 */}
@@ -1324,12 +1351,12 @@ function InventoryListContent() {
 
             {/* モーダルフッター */}
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
-              <button
+              <Button
+                variant="secondary"
                 onClick={() => setShowDetailModal(false)}
-                className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
               >
                 閉じる
-              </button>
+              </Button>
             </div>
           </div>
         </div>

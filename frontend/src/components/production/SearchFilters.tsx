@@ -5,11 +5,12 @@ interface SearchFiltersProps {
   filters: SearchFilters
   onFiltersChange: (filters: SearchFilters) => void
   products: Product[]
-  onSearch: () => void
   onReset: () => void
+  productCodeInputRef?: React.RefObject<HTMLInputElement | null>
+  isSearching?: boolean
 }
 
-export default function SearchFiltersComponent({ filters, onFiltersChange, products, onSearch, onReset }: SearchFiltersProps) {
+export default function SearchFiltersComponent({ filters, onFiltersChange, products, onReset, productCodeInputRef, isSearching = false }: SearchFiltersProps) {
   return (
     <div className="bg-white rounded-lg shadow p-4 mb-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -92,16 +93,17 @@ export default function SearchFiltersComponent({ filters, onFiltersChange, produ
 
       {/* 操作ボタン */}
       <div className="flex justify-end space-x-2 mt-4">
+        {isSearching && (
+          <div className="flex items-center text-blue-600">
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+            <span className="text-sm">検索中...</span>
+          </div>
+        )}
         <Button
           variant="secondary"
           onClick={onReset}
         >
-          リセット
-        </Button>
-        <Button
-          onClick={onSearch}
-        >
-          🔍 検索
+          🔄 リセット
         </Button>
       </div>
     </div>

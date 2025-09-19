@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import RouteGuard from '@/components/guards/RouteGuard'
 import PermissionGuard, { ProcurementEditGuard, usePermissionCheck } from '@/components/guards/PermissionGuard'
@@ -61,9 +61,18 @@ function ScheduledReceiptsContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   
-  // フィルタリング状態
-  const [statusFilter, setStatusFilter] = useState('')
-  const [partCodeFilter, setPartCodeFilter] = useState('')
+  // フィルタリング状態（状態分離）
+  const [inputFilters, setInputFilters] = useState({
+    status: '',
+    partCode: ''
+  })
+  const [searchFilters, setSearchFilters] = useState({
+    status: '',
+    partCode: ''
+  })
+
+  // 検索入力フィールドのref
+  const partCodeInputRef = useRef<HTMLInputElement | null>(null)
   
   // 不足部品一覧の状態
   const [showShortageList, setShowShortageList] = useState(false)
@@ -97,12 +106,25 @@ function ScheduledReceiptsContent() {
     remarks: ''
   })
 
+  // debounce処理（300ms遅延）
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearchFilters(inputFilters)
+    }, 300)
+
+    return () => clearTimeout(timer)
+  }, [inputFilters])
+
   // 初期化
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0]
     setReceiptForm(prev => ({ ...prev, receiptDate: today }))
-    fetchScheduledReceipts()
   }, [])
+
+  // 検索実行（searchFiltersが変更された時）
+  useEffect(() => {
+    fetchScheduledReceipts()
+  }, [searchFilters])
 
   // 予定入荷一覧を取得
   const fetchScheduledReceipts = async () => {
@@ -115,8 +137,8 @@ function ScheduledReceiptsContent() {
       
       // フィルター条件を追加
       const params = new URLSearchParams()
-      if (statusFilter) params.append('status', statusFilter)
-      if (partCodeFilter) params.append('part_code', partCodeFilter)
+      if (searchFilters.status) params.append('status', searchFilters.status)
+      if (searchFilters.partCode) params.append('part_code', searchFilters.partCode)
       
       if (params.toString()) {
         url += '?' + params.toString()
@@ -147,6 +169,16 @@ function ScheduledReceiptsContent() {
       setScheduledReceipts([])
     } finally {
       setIsLoading(false)
+      // フォーカス復元（少し遅延させる）
+      setTimeout(() => {
+        const activeElement = document.activeElement?.tagName
+        // フォーカスが失われている場合のみ復元
+        if (!activeElement || activeElement === 'BODY') {
+          if (partCodeInputRef.current) {
+            partCodeInputRef.current.focus()
+          }
+        }
+      }, 100)
     }
   }
 
@@ -196,42 +228,12 @@ function ScheduledReceiptsContent() {
   }
 
   // リセット機能
-  const handleReset = async () => {
-    setStatusFilter('')
-    setPartCodeFilter('')
-    
-    // フィルターをクリアしてから直接APIを呼び出し
-    try {
-      setIsLoading(true)
-      setError('')
-      
-      const token = localStorage.getItem('token')
-      const url = 'http://localhost:3000/api/scheduled-receipts'
-      
-      const response = await fetch(url, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      })
-      
-      if (!response.ok) {
-        throw new Error('予定入荷一覧の取得に失敗しました')
-      }
-      
-      const result = await response.json()
-      
-      if (result.success && Array.isArray(result.data)) {
-        setScheduledReceipts(result.data)
-      } else {
-        console.error('Unexpected API response:', result)
-        setScheduledReceipts([])
-        setError('データの取得に失敗しました')
-      }
-    } catch (err) {
-      console.error('Reset error:', err)
-      setError(err instanceof Error ? err.message : 'リセット処理エラー')
-      setScheduledReceipts([])
-    } finally {
-      setIsLoading(false)
-    }
+  const handleReset = () => {
+    setInputFilters({
+      status: '',
+      partCode: ''
+    })
+    // searchFiltersは自動的にdebounceで更新される
   }
 
   // 納期回答モーダルを開く
@@ -522,18 +524,8 @@ function ScheduledReceiptsContent() {
   // ステータス表示用のスタイル
   // getStatusStyle関数はStatusBadgeコンポーネントに移動済み
 
-  // フィルタリングされた予定入荷一覧
-  const filteredReceipts = scheduledReceipts.filter(receipt => {
-    if (statusFilter && receipt.status !== statusFilter) return false
-    if (partCodeFilter && !receipt.part_code.toLowerCase().includes(partCodeFilter.toLowerCase())) return false
-    
-    // 入荷処理済みの行は、検索で明示的に「入荷済み」を選択した場合のみ表示
-    if (receipt.status === '入荷済み' && statusFilter !== '入荷済み') {
-      return false
-    }
-    
-    return true
-  })
+  // サーバー側でフィルタリングされるため、取得したデータをそのまま表示
+  const filteredReceipts = scheduledReceipts
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -553,15 +545,17 @@ function ScheduledReceiptsContent() {
 
         {/* 検索フィルター */}
         <SearchFilters
-          statusFilter={statusFilter}
-          partCodeFilter={partCodeFilter}
-          onStatusChange={setStatusFilter}
-          onPartCodeChange={setPartCodeFilter}
+          statusFilter={inputFilters.status}
+          partCodeFilter={inputFilters.partCode}
+          onStatusChange={(value) => setInputFilters({...inputFilters, status: value})}
+          onPartCodeChange={(value) => setInputFilters({...inputFilters, partCode: value})}
           onReset={handleReset}
           onNewOrder={() => setShowOrderModal(true)}
           onToggleShortageList={handleToggleShortageList}
           showShortageList={showShortageList}
           canEdit={canEdit}
+          isSearching={isLoading}
+          partCodeInputRef={partCodeInputRef}
         />
 
         {/* 不足部品一覧 */}

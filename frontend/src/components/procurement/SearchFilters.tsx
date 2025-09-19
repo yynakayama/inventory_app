@@ -11,6 +11,8 @@ interface SearchFiltersProps {
   onToggleShortageList?: () => void
   showShortageList?: boolean
   canEdit: boolean
+  isSearching?: boolean
+  partCodeInputRef?: React.RefObject<HTMLInputElement | null>
 }
 
 export default function SearchFilters({
@@ -22,7 +24,9 @@ export default function SearchFilters({
   onNewOrder,
   onToggleShortageList,
   showShortageList,
-  canEdit
+  canEdit,
+  isSearching = false,
+  partCodeInputRef
 }: SearchFiltersProps) {
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
@@ -47,6 +51,12 @@ export default function SearchFilters({
                 {showShortageList ? "📋 不足部品を非表示" : "⚠️ 不足部品一覧"}
               </Button>
             )}
+            {isSearching && (
+              <div className="flex items-center text-blue-600">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
+                <span className="text-sm">検索中...</span>
+              </div>
+            )}
           </div>
           
           {/* フィルター */}
@@ -67,11 +77,13 @@ export default function SearchFilters({
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">部品コード</label>
-              <PartCodeSelector
+              <input
+                ref={partCodeInputRef}
+                type="text"
                 value={partCodeFilter}
-                onChange={onPartCodeChange}
+                onChange={(e) => onPartCodeChange(e.target.value)}
                 placeholder="部品コードで検索"
-                className="w-full"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             
