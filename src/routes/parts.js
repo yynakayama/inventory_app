@@ -260,7 +260,7 @@ router.get('/:code', authenticateToken, requireReadAccess, async (req, res) => {
 // 管理者専用エンドポイント（admin のみ）
 // ==========================================
 
-// 5. 新規部品登録 POST /api/parts
+// 5. 新規部品登録 POST /api/parts (Upsert対応)
 // 🔐 管理者のみ - 部品マスタの追加権限
 router.post('/', authenticateToken, requireAdmin, async (req, res) => {
     let connection;
@@ -278,7 +278,7 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
             remarks
         } = req.body;
         
-        // 必須項目チェック（部品コードのみ）
+        // 必須項目チェック
         if (!part_code || part_code.trim() === '') {
             return res.status(400).json({
                 success: false,
@@ -287,52 +287,82 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
             });
         }
         
-        console.log(`[${new Date().toISOString()}] ➕ 部品登録開始: ユーザー=${req.user.username}, 部品=${part_code.trim()}`);
+        const trimmedPartCode = part_code.trim();
+        console.log(`[${new Date().toISOString()}] ➕ 部品登録/更新開始: ユーザー=${req.user.username}, 部品=${trimmedPartCode}`);
         
         connection = await mysql.createConnection(dbConfig);
-        
-        const query = `
-            INSERT INTO parts (
-                part_code,
-                specification,
-                unit,
-                lead_time_days,
-                safety_stock,
-                supplier,
-                category,
-                unit_price,
-                remarks
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
-        
-        const values = [
-            part_code.trim(),
-            specification ? specification.trim() : null,
-            unit,
-            lead_time_days,
-            safety_stock,
-            supplier ? supplier.trim() : null,
-            category,
-            unit_price,
-            remarks ? remarks.trim() : null
-        ];
-        
-        await connection.execute(query, values);
-        
-        console.log(`✅ 部品登録完了: ${part_code.trim()} by ${req.user.username} (${req.user.role})`);
-        
-        res.status(201).json({
-            success: true,
-            message: '部品を登録しました',
-            data: { 
-                part_code: part_code.trim(),
-                created_by: req.user.username
+        await connection.beginTransaction();
+
+        // 既存レコードをロックして取得 (is_activeに関わらず)
+        const [existing] = await connection.execute(
+            'SELECT * FROM parts WHERE part_code = ? FOR UPDATE',
+            [trimmedPartCode]
+        );
+
+        if (existing.length > 0) {
+            // レコードが存在する場合
+            const part = existing[0];
+            if (part.is_active) {
+                // 既に有効な部品が存在する場合はエラー
+                await connection.rollback();
+                return res.status(409).json({
+                    success: false,
+                    message: `部品コード「${trimmedPartCode}」は既に存在します`,
+                    error: 'DUPLICATE_PART_CODE'
+                });
+            } else {
+                // 論理削除済みの場合は更新して復活させる
+                console.log(`[${new Date().toISOString()}] ♻️ 論理削除済み部品を更新・復活: ${trimmedPartCode}`);
+                const updateQuery = `
+                    UPDATE parts SET
+                        specification = ?, unit = ?, lead_time_days = ?, safety_stock = ?,
+                        supplier = ?, category = ?, unit_price = ?, remarks = ?,
+                        is_active = TRUE, updated_at = CURRENT_TIMESTAMP
+                    WHERE part_code = ?
+                `;
+                const updateValues = [
+                    specification ? specification.trim() : null, unit, lead_time_days,
+                    safety_stock, supplier ? supplier.trim() : null, category,
+                    unit_price, remarks ? remarks.trim() : null, trimmedPartCode
+                ];
+                await connection.execute(updateQuery, updateValues);
+                await connection.commit();
+
+                res.status(200).json({
+                    success: true,
+                    message: '削除済みの部品を更新し、再度有効化しました',
+                    data: { part_code: trimmedPartCode, updated_by: req.user.username, reactivated: true }
+                });
             }
-        });
+        } else {
+            // レコードが存在しない場合は新規登録
+            console.log(`[${new Date().toISOString()}] ✨ 新規部品を登録: ${trimmedPartCode}`);
+            const insertQuery = `
+                INSERT INTO parts (
+                    part_code, specification, unit, lead_time_days, safety_stock,
+                    supplier, category, unit_price, remarks
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `;
+            const insertValues = [
+                trimmedPartCode, specification ? specification.trim() : null, unit,
+                lead_time_days, safety_stock, supplier ? supplier.trim() : null,
+                category, unit_price, remarks ? remarks.trim() : null
+            ];
+            await connection.execute(insertQuery, insertValues);
+            await connection.commit();
+
+            res.status(201).json({
+                success: true,
+                message: '部品を登録しました',
+                data: { part_code: trimmedPartCode, created_by: req.user.username }
+            });
+        }
 
     } catch (error) {
-        console.error('❌ 部品登録エラー:', error);
+        if (connection) await connection.rollback();
+        console.error('❌ 部品登録/更新エラー:', error);
         
+        // ER_DUP_ENTRYはSELECT FOR UPDATEでハンドルされるため、基本的には到達しないはず
         if (error.code === 'ER_DUP_ENTRY') {
             return res.status(409).json({
                 success: false,
