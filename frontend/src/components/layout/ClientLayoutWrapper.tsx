@@ -2,6 +2,7 @@
 
 import { useAuth } from '@/providers/AuthProvider'
 import MainLayout from './MainLayout'
+import RouteGuard from '@/components/guards/RouteGuard'
 
 interface ClientLayoutWrapperProps {
   children: React.ReactNode
@@ -27,10 +28,12 @@ export default function ClientLayoutWrapper({ children }: ClientLayoutWrapperPro
     return <>{children}</>
   }
   
-  // 認証済みの場合はMainLayoutを適用
+  // 認証済みの場合はMainLayoutとRouteGuardを適用
   return (
-    <MainLayout>
-      {children}
-    </MainLayout>
+    <RouteGuard>
+      <MainLayout>
+        {children}
+      </MainLayout>
+    </RouteGuard>
   )
 }

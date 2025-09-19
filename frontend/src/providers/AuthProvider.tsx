@@ -18,6 +18,7 @@ interface User {
 // 認証状態の型定義
 interface AuthState {
   user: User | null
+  token: string | null
   isLoading: boolean
   isAuthenticated: boolean
 }
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // 認証状態を管理するstate
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
+    token: null,
     isLoading: true, // 初期状態はローディング中
     isAuthenticated: false
   })
@@ -70,6 +72,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // APIが正常に応答した場合、トークンは有効
           setAuthState({
             user,
+            token,
             isLoading: false,
             isAuthenticated: true
           })
@@ -82,6 +85,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // 認証情報がない場合
         setAuthState({
           user: null,
+          token: null,
           isLoading: false,
           isAuthenticated: false
         })
@@ -98,6 +102,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     localStorage.removeItem('token')
     setAuthState({
       user: null,
+      token: null,
       isLoading: false,
       isAuthenticated: false
     })
@@ -126,6 +131,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // 認証状態を更新
           setAuthState({
             user,
+            token,
             isLoading: false,
             isAuthenticated: true
           })

@@ -40,12 +40,11 @@ export function Header() {
     },
     {
       label: 'マスタ管理',
-      href: '/masters',
+      href: '/master',
       roles: ['admin'], // 管理者のみ
       children: [
-        { label: '部品マスタ', href: '/masters/parts', roles: ['admin'] },
-        { label: '製品マスタ', href: '/masters/products', roles: ['admin'] },
-        { label: 'BOM管理', href: '/masters/bom', roles: ['admin'] },
+        { label: '部品マスタ', href: '/master/parts', roles: ['admin'] },
+        { label: '製品・BOM管理', href: '/master/products', roles: ['admin'] },
         { label: 'ユーザー管理', href: '/masters/users', roles: ['admin'] },
       ]
     },

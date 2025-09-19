@@ -77,24 +77,20 @@ const PAGE_ACCESS_CONFIG: Record<string, PageAccessConfig> = {
     allowedRoles: ['admin', 'production_manager', 'material_staff'] as UserRole[]
   },
   
-  // マスタ管理（管理者のみ）
-  '/masters': {
+  // マスタ管理（設計書通りに修正）
+  '/master': {
     requireAuth: true,
-    allowedRoles: ['admin'] as UserRole[]
+    allowedRoles: ['admin', 'production_manager'] as UserRole[]
   },
-  '/masters/parts': {
+  '/master/parts': {
     requireAuth: true,
-    allowedRoles: ['admin'] as UserRole[]
+    allowedRoles: ['admin', 'production_manager'] as UserRole[]
   },
-  '/masters/products': {
+  '/master/products': {
     requireAuth: true,
-    allowedRoles: ['admin'] as UserRole[]
+    allowedRoles: ['admin', 'production_manager'] as UserRole[]
   },
-  '/masters/bom': {
-    requireAuth: true,
-    allowedRoles: ['admin'] as UserRole[]
-  },
-  '/masters/users': {
+  '/master/users': {
     requireAuth: true,
     allowedRoles: ['admin'] as UserRole[]
   },
