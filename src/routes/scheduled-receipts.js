@@ -31,16 +31,20 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
     
     try {
         const { status, part_code, from_date, to_date } = req.query;
-        
+
         let whereConditions = [];
         let params = [];
-        
+
         // ステータスフィルタ
         if (status) {
             whereConditions.push('sr.status = ?');
             params.push(status);
+        } else {
+            // デフォルトで入荷済みを除外
+            whereConditions.push('sr.status != ?');
+            params.push('入荷済み');
         }
-        
+
         // 部品コードフィルタ
         if (part_code) {
             whereConditions.push('sr.part_code LIKE ?');

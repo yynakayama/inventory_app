@@ -339,7 +339,12 @@ function ScheduledReceiptsContent() {
         remarks: ''
       })
       await fetchScheduledReceipts()
-      
+
+      // 不足部品一覧が表示されている場合は更新（更新ボタンと同じ処理）
+      if (showShortageList) {
+        await fetchShortagePartsList()
+      }
+
       alert('新規発注を登録しました')
       
     } catch (err) {
