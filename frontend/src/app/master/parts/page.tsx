@@ -35,7 +35,6 @@ interface PartFormData {
 interface SearchFilters {
   search: string
   category: string
-  supplier: string
 }
 
 interface Category {
@@ -73,18 +72,15 @@ export default function PartsPage() {
   // 検索フィルター（状態分離）
   const [inputFilters, setInputFilters] = useState<SearchFilters>({
     search: '',
-    category: '',
-    supplier: ''
+    category: ''
   })
   const [searchFilters, setSearchFilters] = useState<SearchFilters>({
     search: '',
-    category: '',
-    supplier: ''
+    category: ''
   })
 
   // 検索入力フィールドのref
   const searchInputRef = useRef<HTMLInputElement | null>(null)
-  const supplierInputRef = useRef<HTMLInputElement | null>(null)
 
   // APIベースURL
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001'
@@ -178,8 +174,7 @@ export default function PartsPage() {
   const handleReset = () => {
     setInputFilters({
       search: '',
-      category: '',
-      supplier: ''
+      category: ''
     })
     // searchFiltersは自動的にdebounceで更新される
   }
@@ -347,7 +342,7 @@ export default function PartsPage() {
             </div>
 
             {/* フィルター */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 flex-1 lg:max-w-3xl">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 lg:max-w-2xl">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   検索（部品コード・仕様）
@@ -378,20 +373,6 @@ export default function PartsPage() {
                     </option>
                   ))}
                 </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  仕入先
-                </label>
-                <input
-                  ref={supplierInputRef}
-                  type="text"
-                  value={inputFilters.supplier}
-                  onChange={(e) => setInputFilters({...inputFilters, supplier: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="仕入先名"
-                />
               </div>
 
               <div className="flex flex-col gap-2">
@@ -473,23 +454,29 @@ export default function PartsPage() {
                     {part.safety_stock}{part.unit}
                   </td>
                   {(canEdit || canDelete) && (
-                    <td className="px-4 py-3 text-sm space-x-2">
-                      {canEdit && (
-                        <button
-                          onClick={() => handleEdit(part)}
-                          className="text-blue-600 hover:text-blue-800"
-                        >
-                          編集
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button
-                          onClick={() => handleDelete(part.part_code)}
-                          className="text-red-600 hover:text-red-800"
-                        >
-                          削除
-                        </button>
-                      )}
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex gap-2 items-center">
+                        {canEdit && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleEdit(part)}
+                            className="whitespace-nowrap"
+                          >
+                            編集
+                          </Button>
+                        )}
+                        {canDelete && (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => handleDelete(part.part_code)}
+                            className="whitespace-nowrap"
+                          >
+                            削除
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>

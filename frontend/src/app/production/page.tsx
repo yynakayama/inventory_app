@@ -558,9 +558,6 @@ function ProductionPlansContent() {
                     操作
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    計画ID
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     製品コード
                   </th>
                   <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -589,60 +586,52 @@ function ProductionPlansContent() {
 
                   return (
                     <tr key={plan.id} className={rowColor}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm space-x-2">
-                      {plan.status === '計画' && (
-                        <Button
-                          size="sm"
-                          onClick={() => handleRequirementCalculation(plan)}
-                          className="bg-green-600 hover:bg-green-700"
-                        >
-                          🧮 所要量計算
-                        </Button>
-                      )}
-                      {canManageProduction() && plan.status === '計画' && (
-                        <>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm">
+                      <div className="flex gap-2">
+                        {plan.status === '計画' && (
                           <Button
+                            variant="outline"
                             size="sm"
-                            onClick={() => handleStartProduction(plan.id)}
-                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => handleRequirementCalculation(plan)}
                           >
-                            🚀 生産開始
+                            🧮 所要量計算
                           </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => handleDeletePlan(plan.id)}
-                            className="bg-red-600 hover:bg-red-700"
-                          >
-                            🗑️ 削除
-                          </Button>
-                        </>
-                      )}
-                      {canManageProduction() && plan.status === '生産中' && (
-                        <>
-                          <Button
-                            size="sm"
-                            onClick={() => handleCompleteProduction(plan.id)}
-                            className="bg-blue-600 hover:bg-blue-700"
-                          >
-                            ✅ 生産完了
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => handleDeletePlan(plan.id)}
-                            className="bg-red-600 hover:bg-red-700"
-                          >
-                            🗑️ 削除
-                          </Button>
-                        </>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                      <div className="flex items-center gap-2">
-                        #{plan.id}
-                        {hasShortage && plan.status === '計画' && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 text-xs font-medium bg-red-100 text-red-800 rounded-full" title="部材不足あり">
-                            ⚠️
-                          </span>
+                        )}
+                        {canManageProduction() && plan.status === '計画' && (
+                          <>
+                            <Button
+                              variant="success"
+                              size="sm"
+                              onClick={() => handleStartProduction(plan.id)}
+                            >
+                              🚀 生産開始
+                            </Button>
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => handleDeletePlan(plan.id)}
+                            >
+                              🗑️ 削除
+                            </Button>
+                          </>
+                        )}
+                        {canManageProduction() && plan.status === '生産中' && (
+                          <>
+                            <Button
+                              variant="success"
+                              size="sm"
+                              onClick={() => handleCompleteProduction(plan.id)}
+                            >
+                              ✅ 生産完了
+                            </Button>
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => handleDeletePlan(plan.id)}
+                            >
+                              🗑️ 削除
+                            </Button>
+                          </>
                         )}
                       </div>
                     </td>

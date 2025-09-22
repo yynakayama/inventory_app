@@ -695,12 +695,12 @@ function InventoryListContent() {
         <h1 className="text-2xl font-bold text-gray-900">在庫一覧</h1>
         <div className="flex items-center gap-4">
           <InventoryEditGuard>
-            <button
+            <Button
+              variant="success"
               onClick={() => setShowStocktaking(!showStocktaking)}
-              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
             >
               {showStocktaking ? '📋 棚卸を閉じる' : '📋 棚卸'}
-            </button>
+            </Button>
             <Button
               onClick={syncReservations}
             >
@@ -747,13 +747,14 @@ function InventoryListContent() {
                >
                  ➕ 部品追加
                </Button>
-               <button
+               <Button
+                 variant="success"
+                 size="sm"
                  onClick={executeStocktaking}
                  disabled={stocktakingLoading || stocktakingItems.length === 0}
-                 className="px-4 py-1 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
                >
                  {stocktakingLoading ? '🔄 実行中...' : '✅ 棚卸実行'}
-               </button>
+               </Button>
              </div>
            </div>
 

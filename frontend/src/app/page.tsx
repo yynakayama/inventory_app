@@ -2,12 +2,13 @@
 
 import { useAuth, usePermissions } from '@/providers/AuthProvider'
 import RouteGuard from '@/components/guards/RouteGuard'
-import PermissionGuard, { 
-  AdminOnly, 
-  ProductionManagerOnly, 
+import PermissionGuard, {
+  AdminOnly,
+  ProductionManagerOnly,
   MaterialStaffOnly,
-  usePermissionCheck 
+  usePermissionCheck
 } from '@/components/guards/PermissionGuard'
+import Button from '@/components/ui/Button'
 
 function DashboardContent() {
   const { user, logout } = useAuth()
@@ -97,14 +98,14 @@ function DashboardContent() {
               <h3 className="text-sm font-medium text-gray-700 mb-2">全ユーザー表示</h3>
               <div className="flex flex-wrap gap-2">
                 <PermissionGuard requiredRoles={['admin', 'production_manager', 'material_staff', 'viewer']}>
-                  <button className="px-4 py-2 bg-gray-200 text-gray-900 rounded-md hover:bg-gray-300 transition-colors">
+                  <Button variant="secondary">
                     在庫一覧表示
-                  </button>
+                  </Button>
                 </PermissionGuard>
                 <PermissionGuard requiredRoles={['admin', 'production_manager', 'material_staff', 'viewer']}>
-                  <button className="px-4 py-2 bg-gray-200 text-gray-900 rounded-md hover:bg-gray-300 transition-colors">
+                  <Button variant="secondary">
                     レポート閲覧
-                  </button>
+                  </Button>
                 </PermissionGuard>
               </div>
             </div>
@@ -114,19 +115,19 @@ function DashboardContent() {
               <h3 className="text-sm font-medium text-gray-700 mb-2">資材担当以上</h3>
               <div className="flex flex-wrap gap-2">
                 <MaterialStaffOnly>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                  <Button variant="success">
                     入荷処理
-                  </button>
+                  </Button>
                 </MaterialStaffOnly>
                 <PermissionGuard requiredRoles={['admin', 'material_staff']}>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                  <Button variant="primary">
                     出庫処理
-                  </button>
+                  </Button>
                 </PermissionGuard>
                 <PermissionGuard requiredPermissions={['inventory.update']}>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                  <Button variant="warning">
                     在庫更新
-                  </button>
+                  </Button>
                 </PermissionGuard>
               </div>
             </div>
@@ -136,14 +137,14 @@ function DashboardContent() {
               <h3 className="text-sm font-medium text-gray-700 mb-2">生産管理者以上</h3>
               <div className="flex flex-wrap gap-2">
                 <ProductionManagerOnly>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                  <Button variant="success">
                     生産計画作成
-                  </button>
+                  </Button>
                 </ProductionManagerOnly>
                 <PermissionGuard requiredPermissions={['production.create']}>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                  <Button variant="warning">
                     生産計画編集
-                  </button>
+                  </Button>
                 </PermissionGuard>
               </div>
             </div>
@@ -153,19 +154,19 @@ function DashboardContent() {
               <h3 className="text-sm font-medium text-gray-700 mb-2">管理者のみ</h3>
               <div className="flex flex-wrap gap-2">
                 <AdminOnly>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                  <Button variant="primary">
                     ユーザー管理
-                  </button>
+                  </Button>
                 </AdminOnly>
                 <AdminOnly>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                  <Button variant="primary">
                     マスタ管理
-                  </button>
+                  </Button>
                 </AdminOnly>
                 <PermissionGuard requiredPermissions={['system.settings']}>
-                  <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                  <Button variant="danger">
                     システム設定
-                  </button>
+                  </Button>
                 </PermissionGuard>
               </div>
             </div>
@@ -173,14 +174,14 @@ function DashboardContent() {
             {/* フォールバック表示テスト */}
             <div>
               <h3 className="text-sm font-medium text-gray-700 mb-2">フォールバック表示テスト</h3>
-              <PermissionGuard 
-                requiredRoles={['admin']} 
+              <PermissionGuard
+                requiredRoles={['admin']}
                 fallback={<span className="text-sm text-gray-500">管理者権限が必要です</span>}
                 hideIfNoAccess={false}
               >
-                <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
+                <Button variant="danger">
                   管理者専用機能
-                </button>
+                </Button>
               </PermissionGuard>
             </div>
           </div>
@@ -192,8 +193,8 @@ function DashboardContent() {
             API接続テスト
           </h2>
           <div className="flex gap-4">
-            <button 
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+            <Button
+              variant="primary"
               onClick={async () => {
                 try {
                   const response = await fetch('http://localhost:3000/api/inventory', {
@@ -212,10 +213,10 @@ function DashboardContent() {
               }}
             >
               在庫データ取得テスト
-            </button>
-            
-            <button 
-              className="px-4 py-2 bg-gray-200 text-gray-900 rounded-md hover:bg-gray-300 transition-colors"
+            </Button>
+
+            <Button
+              variant="secondary"
               onClick={() => {
                 const token = localStorage.getItem('token')
                 const user = localStorage.getItem('user')
@@ -225,7 +226,7 @@ function DashboardContent() {
               }}
             >
               認証情報確認
-            </button>
+            </Button>
           </div>
         </div>
       </div>

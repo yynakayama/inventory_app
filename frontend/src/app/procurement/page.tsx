@@ -630,9 +630,9 @@ function ScheduledReceiptsContent() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <ProcurementEditGuard>
                             <Button
+                              variant="warning"
                               size="sm"
                               onClick={() => openOrderModalFromShortage(part)}
-                              className="bg-orange-600 hover:bg-orange-700"
                             >
                               発注
                             </Button>
@@ -687,8 +687,9 @@ function ScheduledReceiptsContent() {
                 <p className="text-gray-600">該当する調達情報がありません</p>
                 <ProcurementEditGuard>
                   <Button
+                    variant="primary"
                     onClick={() => setShowOrderModal(true)}
-                    className="mt-4 bg-blue-600 hover:bg-blue-700"
+                    className="mt-4"
                   >
                     📝 新規発注を登録
                   </Button>
@@ -740,46 +741,48 @@ function ScheduledReceiptsContent() {
 
                     return (
                       <tr key={receipt.id} className={rowColor}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm space-x-2">
-                        {receipt.status === '納期回答待ち' && (
-                          <ProcurementEditGuard>
-                            <Button
-                              size="sm"
-                              onClick={() => openDeliveryModal(receipt)}
-                              className="bg-orange-600 hover:bg-orange-700"
-                            >
-                              納期設定
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => openCancelModal(receipt)}
-                              className="bg-red-600 hover:bg-red-700 ml-2"
-                            >
-                              キャンセル
-                            </Button>
-                          </ProcurementEditGuard>
-                        )}
-                        {receipt.status === '入荷予定' && (
-                          <ProcurementEditGuard>
-                            <Button
-                              size="sm"
-                              onClick={() => openReceiptModal(receipt)}
-                              className="bg-green-600 hover:bg-green-700"
-                            >
-                              入荷処理
-                            </Button>
-                            <Button
-                              size="sm"
-                              onClick={() => openCancelModal(receipt)}
-                              className="bg-red-600 hover:bg-red-700 ml-2"
-                            >
-                              キャンセル
-                            </Button>
-                          </ProcurementEditGuard>
-                        )}
-                        {receipt.status === '入荷済み' && (
-                          <span className="text-green-600 text-sm">処理済み</span>
-                        )}
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <div className="flex gap-2">
+                          {receipt.status === '納期回答待ち' && (
+                            <ProcurementEditGuard>
+                              <Button
+                                variant="warning"
+                                size="sm"
+                                onClick={() => openDeliveryModal(receipt)}
+                              >
+                                納期設定
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => openCancelModal(receipt)}
+                              >
+                                キャンセル
+                              </Button>
+                            </ProcurementEditGuard>
+                          )}
+                          {receipt.status === '入荷予定' && (
+                            <ProcurementEditGuard>
+                              <Button
+                                variant="success"
+                                size="sm"
+                                onClick={() => openReceiptModal(receipt)}
+                              >
+                                入荷処理
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                onClick={() => openCancelModal(receipt)}
+                              >
+                                キャンセル
+                              </Button>
+                            </ProcurementEditGuard>
+                          )}
+                          {receipt.status === '入荷済み' && (
+                            <span className="text-green-600 text-sm">処理済み</span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         {receipt.order_no}
@@ -876,6 +879,7 @@ function ScheduledReceiptsContent() {
               
               <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
                 <Button
+                  variant="primary"
                   onClick={handleCreateOrder}
                   disabled={isLoading || !orderForm.partCode.trim() || !orderForm.orderQuantity}
                   className="flex-1"
@@ -949,6 +953,7 @@ function ScheduledReceiptsContent() {
               
               <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
                 <Button
+                  variant="primary"
                   onClick={handleDeliveryResponse}
                   disabled={isLoading || !deliveryForm.scheduledQuantity || !deliveryForm.scheduledDate}
                   className="flex-1"
@@ -1043,6 +1048,7 @@ function ScheduledReceiptsContent() {
               
               <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
                 <Button
+                  variant="primary"
                   onClick={handleReceiptProcess}
                   disabled={isLoading || !receiptForm.actualQuantity || !receiptForm.receiptDate}
                   className="flex-1"
@@ -1105,9 +1111,10 @@ function ScheduledReceiptsContent() {
               
               <div className="px-6 py-4 border-t border-gray-200 flex gap-3">
                 <Button
+                  variant="danger"
                   onClick={handleCancelOrder}
                   disabled={isLoading}
-                  className="flex-1 bg-red-600 hover:bg-red-700"
+                  className="flex-1"
                 >
                   {isLoading ? '削除中...' : '発注を削除'}
                 </Button>
