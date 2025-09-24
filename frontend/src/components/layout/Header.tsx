@@ -88,12 +88,18 @@ export function Header() {
 
               return (
                 <div key={item.href} className="relative group">
-                  <Link
-                    href={item.href}
-                    className="text-gray-700 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors duration-200"
-                  >
-                    {item.label}
-                  </Link>
+                  {item.children ? (
+                    <span className="text-gray-700 px-3 py-2 text-sm font-medium cursor-default">
+                      {item.label}
+                    </span>
+                  ) : (
+                    <Link
+                      href={item.href}
+                      className="text-gray-700 hover:text-blue-600 px-3 py-2 text-sm font-medium transition-colors duration-200"
+                    >
+                      {item.label}
+                    </Link>
+                  )}
                   
                   {/* ドロップダウンメニュー */}
                   {item.children && (
@@ -184,13 +190,19 @@ export function Header() {
 
                 return (
                   <div key={item.href}>
-                    <Link
-                      href={item.href}
-                      className="text-gray-700 hover:text-blue-600 block px-3 py-2 text-base font-medium"
-                      onClick={() => setIsMenuOpen(false)}
-                    >
-                      {item.label}
-                    </Link>
+                    {item.children ? (
+                      <span className="text-gray-700 block px-3 py-2 text-base font-medium">
+                        {item.label}
+                      </span>
+                    ) : (
+                      <Link
+                        href={item.href}
+                        className="text-gray-700 hover:text-blue-600 block px-3 py-2 text-base font-medium"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        {item.label}
+                      </Link>
+                    )}
                     {item.children && (
                       <div className="pl-4">
                         {item.children.map((child) => {

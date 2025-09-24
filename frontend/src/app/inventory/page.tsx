@@ -105,7 +105,7 @@ function StatusBadge({ availableStock, currentStock, safetyStock }: StatusBadgeP
   }
   
   // 安全在庫割れ
-  if (currentStock <= safetyStock) {
+  if (currentStock < safetyStock) {
     return (
       <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
         ⚠️ 安全在庫割れ

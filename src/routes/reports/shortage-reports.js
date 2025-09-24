@@ -550,7 +550,7 @@ router.get('/:part_code', authenticateToken, requireReadAccess, async (req, res)
                 ROUND(SUM(isc.shortage_quantity) * COALESCE(p.unit_price, 0), 2) as total_estimated_cost,
                 
                 -- 安全在庫との比較
-                CASE 
+                CASE
                     WHEN MIN(isc.available_stock) < p.safety_stock THEN '安全在庫割れ'
                     ELSE '安全在庫内'
                 END as safety_stock_status

@@ -47,9 +47,9 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                 i.reserved_stock,
                 (i.current_stock - i.reserved_stock) as available_stock,
                 i.updated_at,
-                CASE 
-                    WHEN i.current_stock <= COALESCE(p.safety_stock, 0) THEN true 
-                    ELSE false 
+                CASE
+                    WHEN i.current_stock < COALESCE(p.safety_stock, 0) THEN true
+                    ELSE false
                 END as is_low_stock
             FROM inventory i
             LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
@@ -73,7 +73,7 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
         
         // 安全在庫切れフィルタの追加
         if (low_stock === 'true') {
-            sql += ` AND i.current_stock <= COALESCE(p.safety_stock, 0)`;
+            sql += ` AND i.current_stock < COALESCE(p.safety_stock, 0)`;
         }
         
         sql += ` ORDER BY i.part_code`;
@@ -194,9 +194,9 @@ router.get('/:part_code', authenticateToken, requireReadAccess, async (req, res)
                 COALESCE(SUM(ir.reserved_quantity), 0) as reserved_stock,
                 (i.current_stock - COALESCE(SUM(ir.reserved_quantity), 0)) as available_stock,
                 i.updated_at,
-                CASE 
-                    WHEN i.current_stock <= COALESCE(p.safety_stock, 0) THEN true 
-                    ELSE false 
+                CASE
+                    WHEN i.current_stock < COALESCE(p.safety_stock, 0) THEN true
+                    ELSE false
                 END as is_low_stock
             FROM inventory i
             LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true

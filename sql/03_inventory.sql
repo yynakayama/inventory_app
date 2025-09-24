@@ -47,8 +47,8 @@ SELECT
     i.reserved_stock,
     i.safety_stock,
     (i.current_stock - i.reserved_stock) AS available_stock,
-    CASE 
-        WHEN (i.current_stock - i.reserved_stock) <= i.safety_stock THEN 'LOW'
+    CASE
+        WHEN (i.current_stock - i.reserved_stock) < i.safety_stock THEN 'LOW'
         WHEN (i.current_stock - i.reserved_stock) <= (i.safety_stock * 1.5) THEN 'WARNING'
         ELSE 'OK'
     END AS stock_status,
