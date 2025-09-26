@@ -349,6 +349,14 @@ router.post('/', authenticateToken, requireAdmin, async (req, res) => {
                 category, unit_price, remarks ? remarks.trim() : null
             ];
             await connection.execute(insertQuery, insertValues);
+
+            // 在庫テーブルにも初期レコードを作成
+            const inventoryQuery = `
+                INSERT INTO inventory (part_code, current_stock, reserved_stock, safety_stock)
+                VALUES (?, 0, 0, ?)
+            `;
+            await connection.execute(inventoryQuery, [trimmedPartCode, safety_stock]);
+
             await connection.commit();
 
             res.status(201).json({

@@ -227,7 +227,7 @@ export default function PartsPage() {
     try {
       const url = modalMode === 'create'
         ? `${API_BASE}/api/parts`
-        : `${API_BASE}/api/parts/${selectedPart?.part_code}`
+        : `${API_BASE}/api/parts/${encodeURIComponent(selectedPart?.part_code || '')}`
 
       const method = modalMode === 'create' ? 'POST' : 'PUT'
 
@@ -269,7 +269,8 @@ export default function PartsPage() {
     if (!confirm('この部品を削除しますか？')) return
 
     try {
-      const response = await fetch(`${API_BASE}/api/parts/${partCode}`, {
+      const encodedPartCode = encodeURIComponent(partCode)
+      const response = await fetch(`${API_BASE}/api/parts/${encodedPartCode}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

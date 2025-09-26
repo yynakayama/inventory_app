@@ -52,8 +52,8 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                     ELSE false
                 END as is_low_stock
             FROM inventory i
-            LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
-            WHERE 1=1
+            INNER JOIN parts p ON i.part_code = p.part_code
+            WHERE p.is_active = true
         `;
         
         const params = [];
