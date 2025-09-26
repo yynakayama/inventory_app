@@ -334,9 +334,6 @@ export default function UsersPage() {
                         <td className="px-4 py-4 whitespace-nowrap text-sm space-x-2">
                           <Button size="sm" variant="outline" onClick={() => handleEditUser(user)}>編集</Button>
                           <Button size="sm" variant="secondary" onClick={() => handlePasswordReset(user)}>パスワード</Button>
-                          <Button size="sm" variant={user.is_active ? 'danger' : 'outline'} onClick={() => toggleUserStatus(user)}>
-                            {user.is_active ? '無効化' : '有効化'}
-                          </Button>
                           <Button size="sm" variant="danger" onClick={() => deleteUser(user)}>削除</Button>
                         </td>
                       </tr>
