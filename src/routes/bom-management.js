@@ -1,12 +1,12 @@
+
 /**
- * BOM管理API
- * 製品選択 → 工程一覧表示 → 工程選択 → 使用部品一覧表示・編集
- * 権限: 生産管理権限（admin, production_manager）
+ * BOM・マスター管理API
+ * 権限: admin, production_manager
  */
 
 const express = require('express');
 const mysql = require('mysql2/promise');
-const { authenticateToken, requireProductionAccess, requireReadAccess } = require('../middleware/auth');
+const { authenticateToken, requireAdmin, requireReadAccess } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -21,48 +21,26 @@ const dbConfig = {
 };
 
 // ==========================================
-// 1. 製品関連API
+// 1. 製品 (Product) API
 // ==========================================
 
 /**
  * 製品一覧取得
- * GET /api/bom/products
- * 権限: 全ユーザー（参照系）
  */
 router.get('/products', authenticateToken, requireReadAccess, async (req, res) => {
     let connection;
-    
     try {
         const query = `
-            SELECT 
-                product_code,
-                remarks,
-                created_at,
-                updated_at
+            SELECT product_code, remarks, created_at, updated_at
             FROM products 
             WHERE is_active = TRUE
             ORDER BY product_code
         `;
-        
         connection = await mysql.createConnection(dbConfig);
         const [results] = await connection.execute(query);
-        
-        console.log(`[${new Date().toISOString()}] 製品一覧取得: ユーザー=${req.user.username}, 件数=${results.length}`);
-        
-        res.json({
-            success: true,
-            data: results,
-            count: results.length,
-            message: `製品一覧を取得しました (${results.length}件)`
-        });
-        
+        res.json({ success: true, data: results });
     } catch (error) {
-        console.error('製品一覧取得エラー:', error.message);
-        res.status(500).json({
-            success: false,
-            message: '製品一覧の取得に失敗しました',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: '製品一覧の取得に失敗しました', error: error.message });
     } finally {
         if (connection) await connection.end();
     }
@@ -70,269 +48,333 @@ router.get('/products', authenticateToken, requireReadAccess, async (req, res) =
 
 /**
  * 製品新規作成
- * POST /api/bom/products
- * 権限: 生産管理権限（admin, production_manager）
  */
-router.post('/products', authenticateToken, requireProductionAccess, async (req, res) => {
+router.post('/products', authenticateToken, requireAdmin, async (req, res) => {
     let connection;
-    
     try {
         const { product_code, remarks = null } = req.body;
-        
-        // 入力チェック
-        if (!product_code) {
-            return res.status(400).json({
-                success: false,
-                message: '製品コードは必須です'
-            });
+        if (!product_code || !/^[A-Za-z0-9\-]+$/.test(product_code)) {
+            return res.status(400).json({ success: false, message: '製品コードは必須で、英数字とハイフンのみ使用できます' });
         }
-        
-        // 製品コードの形式チェック（英数字とハイフンのみ）
-        if (!/^[A-Za-z0-9\-]+$/.test(product_code)) {
-            return res.status(400).json({
-                success: false,
-                message: '製品コードは英数字とハイフンのみ使用できます'
-            });
-        }
-        
-        const query = `
-            INSERT INTO products (product_code, remarks)
-            VALUES (?, ?)
-        `;
-        
+        const query = `INSERT INTO products (product_code, remarks) VALUES (?, ?)`;
         connection = await mysql.createConnection(dbConfig);
-        const [result] = await connection.execute(query, [product_code, remarks]);
-        
-        console.log(`[${new Date().toISOString()}] 製品作成: ユーザー=${req.user.username}, 製品コード=${product_code}`);
-        
-        res.status(201).json({
-            success: true,
-            data: {
-                product_code,
-                remarks,
-                created_by: req.user.username
-            },
-            message: '製品を作成しました'
-        });
-        
+        await connection.execute(query, [product_code, remarks]);
+        res.status(201).json({ success: true, message: '製品を作成しました' });
     } catch (error) {
-        console.error('製品作成エラー:', error.message);
-        
         if (error.code === 'ER_DUP_ENTRY') {
-            res.status(409).json({
-                success: false,
-                message: '同じ製品コードが既に存在します'
-            });
+            res.status(409).json({ success: false, message: '同じ製品コードが既に存在します' });
         } else {
-            res.status(500).json({
-                success: false,
-                message: '製品の作成に失敗しました',
-                error: error.message
-            });
+            res.status(500).json({ success: false, message: '製品の作成に失敗しました', error: error.message });
         }
     } finally {
         if (connection) await connection.end();
     }
 });
 
-// ==========================================
-// 2. 工程関連API
-// ==========================================
-
 /**
- * 指定製品の工程一覧取得
- * GET /api/bom/products/:productCode/stations
- * 権限: 全ユーザー（参照系）
+ * 製品更新
  */
-router.get('/products/:productCode/stations', authenticateToken, requireReadAccess, async (req, res) => {
+router.put('/products/:productCode', authenticateToken, requireAdmin, async (req, res) => {
     let connection;
-    
     try {
         const { productCode } = req.params;
-        
+        const { remarks } = req.body;
+        const query = `UPDATE products SET remarks = ?, updated_at = CURRENT_TIMESTAMP WHERE product_code = ? AND is_active = TRUE`;
         connection = await mysql.createConnection(dbConfig);
-        
-        // 製品が存在するかチェック
-        const [productResults] = await connection.execute(
-            'SELECT product_code FROM products WHERE product_code = ? AND is_active = TRUE',
-            [productCode]
-        );
-        
-        if (productResults.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: '指定された製品が見つかりません'
-            });
+        const [result] = await connection.execute(query, [remarks, productCode]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: '指定された製品が見つかりません' });
         }
-        
-        // 製品で使用されている工程一覧を取得
-        const stationsQuery = `
-            SELECT DISTINCT
-                ws.station_code,
-                ws.process_group,
-                ws.remarks,
-                COUNT(b.part_code) as parts_count
-            FROM work_stations ws
-            LEFT JOIN bom_items b ON ws.station_code = b.station_code 
-                AND b.product_code = ? AND b.is_active = TRUE
-            WHERE ws.is_active = TRUE
-            GROUP BY ws.station_code, ws.process_group, ws.remarks
-            ORDER BY ws.process_group, ws.station_code
-        `;
-        
-        const [stations] = await connection.execute(stationsQuery, [productCode]);
-        
-        console.log(`[${new Date().toISOString()}] 工程一覧取得: ユーザー=${req.user.username}, 製品=${productCode}, 件数=${stations.length}`);
-        
-        res.json({
-            success: true,
-            data: {
-                product_code: productCode,
-                stations: stations
-            },
-            count: stations.length,
-            message: `製品 ${productCode} の工程一覧を取得しました (${stations.length}件)`
-        });
-        
+        res.json({ success: true, message: '製品を更新しました' });
     } catch (error) {
-        console.error('工程一覧取得エラー:', error.message);
-        res.status(500).json({
-            success: false,
-            message: '工程一覧の取得に失敗しました',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: '製品の更新に失敗しました', error: error.message });
     } finally {
         if (connection) await connection.end();
     }
 });
 
 /**
- * 全工程一覧取得（工程追加用）
- * GET /api/bom/stations
- * 権限: 全ユーザー（参照系）
+ * 製品削除 (論理削除)
+ */
+router.delete('/products/:productCode', authenticateToken, requireAdmin, async (req, res) => {
+    let connection;
+    try {
+        const { productCode } = req.params;
+        const query = `UPDATE products SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE product_code = ?`;
+        connection = await mysql.createConnection(dbConfig);
+        const [result] = await connection.execute(query, [productCode]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: '指定された製品が見つかりません' });
+        }
+        res.json({ success: true, message: '製品を削除しました' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '製品の削除に失敗しました', error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+
+// ==========================================
+// 2. 工程 (Station) API
+// ==========================================
+
+/**
+ * 全工程一覧取得
  */
 router.get('/stations', authenticateToken, requireReadAccess, async (req, res) => {
     let connection;
-    
     try {
         const query = `
-            SELECT 
-                station_code,
-                process_group,
-                remarks
+            SELECT station_code, process_group, remarks
             FROM work_stations 
             WHERE is_active = TRUE
             ORDER BY process_group, station_code
         `;
-        
         connection = await mysql.createConnection(dbConfig);
         const [results] = await connection.execute(query);
-        
-        console.log(`[${new Date().toISOString()}] 全工程一覧取得: ユーザー=${req.user.username}, 件数=${results.length}`);
-        
-        res.json({
-            success: true,
-            data: results,
-            count: results.length,
-            message: `全工程一覧を取得しました (${results.length}件)`
-        });
-        
+        res.json({ success: true, data: results });
     } catch (error) {
-        console.error('全工程一覧取得エラー:', error.message);
-        res.status(500).json({
-            success: false,
-            message: '全工程一覧の取得に失敗しました',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: '工程一覧の取得に失敗しました', error: error.message });
     } finally {
         if (connection) await connection.end();
     }
 });
 
+/**
+ * 工程新規作成・復活
+ */
+router.post('/stations', authenticateToken, requireAdmin, async (req, res) => {
+    let connection;
+    try {
+        const { station_code, process_group, remarks = null } = req.body;
+        if (!station_code || !process_group) {
+            return res.status(400).json({ success: false, message: '工程コードと工程グループは必須です' });
+        }
+
+        connection = await mysql.createConnection(dbConfig);
+
+        // 既存の論理削除された工程を探す
+        const findQuery = `SELECT station_code FROM work_stations WHERE station_code = ?`;
+        const [existing] = await connection.execute(findQuery, [station_code]);
+
+        if (existing.length > 0) {
+            // 既存工程があれば復活・更新
+            const updateQuery = `UPDATE work_stations SET process_group = ?, remarks = ?, is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE station_code = ?`;
+            await connection.execute(updateQuery, [process_group, remarks, station_code]);
+            res.status(200).json({ success: true, message: '既存の工程を復活・更新しました' });
+        } else {
+            // なければ新規作成
+            const insertQuery = `INSERT INTO work_stations (station_code, process_group, remarks) VALUES (?, ?, ?)`;
+            await connection.execute(insertQuery, [station_code, process_group, remarks]);
+            res.status(201).json({ success: true, message: '工程を作成しました' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, message: '工程の作成に失敗しました', error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+/**
+ * 工程更新
+ */
+router.put('/stations/:stationCode', authenticateToken, requireAdmin, async (req, res) => {
+    let connection;
+    try {
+        const { stationCode } = req.params;
+        const { process_group, remarks } = req.body;
+        if (!process_group) {
+            return res.status(400).json({ success: false, message: '工程グループは必須です' });
+        }
+        const query = `UPDATE work_stations SET process_group = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP WHERE station_code = ? AND is_active = TRUE`;
+        connection = await mysql.createConnection(dbConfig);
+        const [result] = await connection.execute(query, [process_group, remarks, stationCode]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: '指定された工程が見つかりません' });
+        }
+        res.json({ success: true, message: '工程を更新しました' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '工程の更新に失敗しました', error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+/**
+ * 工程削除 (論理削除)
+ */
+router.delete('/stations/:stationCode', authenticateToken, requireAdmin, async (req, res) => {
+    let connection;
+    try {
+        const { stationCode } = req.params;
+        const query = `UPDATE work_stations SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE station_code = ?`;
+        connection = await mysql.createConnection(dbConfig);
+        const [result] = await connection.execute(query, [stationCode]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: '指定された工程が見つかりません' });
+        }
+        res.json({ success: true, message: '工程を削除しました' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '工程の削除に失敗しました', error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+
 // ==========================================
-// 3. BOM（使用部品）関連API
+// 3. BOM (Bill of Materials) API
 // ==========================================
 
 /**
+ * 指定製品に関連付け可能な工程一覧取得
+ */
+router.get('/products/:productCode/available-stations', authenticateToken, requireReadAccess, async (req, res) => {
+    let connection;
+    try {
+        const { productCode } = req.params;
+        const query = `
+            SELECT ws.station_code, ws.process_group, ws.remarks
+            FROM work_stations ws
+            WHERE ws.is_active = TRUE
+            AND NOT EXISTS (
+                SELECT 1 FROM product_station_associations psa
+                WHERE psa.product_code = ? AND psa.station_code = ws.station_code AND psa.is_active = TRUE
+            )
+            ORDER BY ws.process_group, ws.station_code
+        `;
+        connection = await mysql.createConnection(dbConfig);
+        const [stations] = await connection.execute(query, [productCode]);
+        res.json({ success: true, data: stations });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '利用可能工程一覧の取得に失敗しました', error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+/**
+ * 指定製品の関連工程一覧取得
+ */
+router.get('/products/:productCode/stations', authenticateToken, requireReadAccess, async (req, res) => {
+    let connection;
+    try {
+        const { productCode } = req.params;
+        const query = `
+            SELECT
+                ws.station_code, ws.process_group, ws.remarks,
+                (SELECT COUNT(*) FROM bom_items bi WHERE bi.station_code = ws.station_code AND bi.product_code = ? AND bi.is_active = TRUE) as parts_count
+            FROM work_stations ws
+            INNER JOIN product_station_associations psa ON ws.station_code = psa.station_code
+            WHERE ws.is_active = TRUE
+            AND psa.is_active = TRUE
+            AND psa.product_code = ?
+            ORDER BY psa.sequence_number, ws.process_group, ws.station_code
+        `;
+        connection = await mysql.createConnection(dbConfig);
+        const [stations] = await connection.execute(query, [productCode, productCode]);
+        res.json({ success: true, data: { product_code: productCode, stations: stations } });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '工程一覧の取得に失敗しました', error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+/**
+ * 製品と工程を関連付ける
+ */
+router.post('/products/:productCode/stations/:stationCode', authenticateToken, requireAdmin, async (req, res) => {
+    let connection;
+    try {
+        const { productCode, stationCode } = req.params;
+
+        connection = await mysql.createConnection(dbConfig);
+
+        // 製品と工程の存在確認
+        const productQuery = `SELECT product_code FROM products WHERE product_code = ? AND is_active = TRUE`;
+        const stationQuery = `SELECT station_code FROM work_stations WHERE station_code = ? AND is_active = TRUE`;
+
+        const [productResult] = await connection.execute(productQuery, [productCode]);
+        const [stationResult] = await connection.execute(stationQuery, [stationCode]);
+
+        if (productResult.length === 0) {
+            return res.status(404).json({ success: false, message: '指定された製品が見つかりません' });
+        }
+        if (stationResult.length === 0) {
+            return res.status(404).json({ success: false, message: '指定された工程が見つかりません' });
+        }
+
+        // 既に関連付けられているかチェック
+        const checkQuery = `SELECT 1 FROM product_station_associations WHERE product_code = ? AND station_code = ? AND is_active = TRUE LIMIT 1`;
+        const [existing] = await connection.execute(checkQuery, [productCode, stationCode]);
+
+        if (existing.length > 0) {
+            return res.status(409).json({ success: false, message: 'この製品と工程は既に関連付けられています' });
+        }
+
+        // 製品-工程関連付けを作成
+        const insertQuery = `INSERT INTO product_station_associations (product_code, station_code, sequence_number, remarks) VALUES (?, ?, 0, 'BOM管理画面から追加')`;
+        await connection.execute(insertQuery, [productCode, stationCode]);
+
+        res.json({ success: true, message: '製品と工程を関連付けました' });
+    } catch (error) {
+        res.status(500).json({ success: false, message: '製品と工程の関連付けに失敗しました', error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+/**
+ * 製品と工程の関連付け解除 (関連付けとBOM項目を論理削除)
+ */
+router.delete('/products/:productCode/stations/:stationCode', authenticateToken, requireAdmin, async (req, res) => {
+    let connection;
+    try {
+        const { productCode, stationCode } = req.params;
+        connection = await mysql.createConnection(dbConfig);
+
+        await connection.beginTransaction();
+
+        // 1. 製品-工程関連付けを論理削除
+        const associationQuery = `UPDATE product_station_associations SET is_active = FALSE WHERE product_code = ? AND station_code = ?`;
+        await connection.execute(associationQuery, [productCode, stationCode]);
+
+        // 2. 配下のBOM項目も論理削除
+        const bomQuery = `UPDATE bom_items SET is_active = FALSE WHERE product_code = ? AND station_code = ?`;
+        await connection.execute(bomQuery, [productCode, stationCode]);
+
+        await connection.commit();
+        res.json({ success: true, message: '製品と工程の関連付けを解除しました' });
+    } catch (error) {
+        if (connection) await connection.rollback();
+        res.status(500).json({ success: false, message: '製品と工程の関連付け解除に失敗しました', error: error.message });
+    } finally {
+        if (connection) await connection.end();
+    }
+});
+
+
+/**
  * 指定工程の使用部品一覧取得
- * GET /api/bom/products/:productCode/stations/:stationCode/parts
- * 権限: 全ユーザー（参照系）
  */
 router.get('/products/:productCode/stations/:stationCode/parts', authenticateToken, requireReadAccess, async (req, res) => {
     let connection;
-    
     try {
         const { productCode, stationCode } = req.params;
-        
-        connection = await mysql.createConnection(dbConfig);
-        
-        // 製品と工程の存在チェック
-        const checksQuery = `
-            SELECT 
-                (SELECT COUNT(*) FROM products WHERE product_code = ? AND is_active = TRUE) as product_exists,
-                (SELECT COUNT(*) FROM work_stations WHERE station_code = ? AND is_active = TRUE) as station_exists
-        `;
-        
-        const [checks] = await connection.execute(checksQuery, [productCode, stationCode]);
-        
-        if (checks[0].product_exists === 0) {
-            return res.status(404).json({
-                success: false,
-                message: '指定された製品が見つかりません'
-            });
-        }
-        
-        if (checks[0].station_exists === 0) {
-            return res.status(404).json({
-                success: false,
-                message: '指定された工程が見つかりません'
-            });
-        }
-        
-        // 使用部品一覧取得
-        const partsQuery = `
-            SELECT 
-                b.id,
-                b.part_code,
-                p.specification,
-                b.quantity,
-                p.unit,
-                p.supplier,
-                p.lead_time_days,
-                b.remarks,
-                b.created_at,
-                b.updated_at
+        const query = `
+            SELECT b.id, b.part_code, p.specification, b.quantity, p.unit, b.remarks
             FROM bom_items b
             INNER JOIN parts p ON b.part_code = p.part_code
-            WHERE b.product_code = ? 
-                AND b.station_code = ? 
-                AND b.is_active = TRUE
-                AND p.is_active = TRUE
+            WHERE b.product_code = ? AND b.station_code = ? AND b.is_active = TRUE AND p.is_active = TRUE
             ORDER BY b.part_code
         `;
-        
-        const [parts] = await connection.execute(partsQuery, [productCode, stationCode]);
-        
-        console.log(`[${new Date().toISOString()}] 使用部品一覧取得: ユーザー=${req.user.username}, 製品=${productCode}, 工程=${stationCode}, 件数=${parts.length}`);
-        
-        res.json({
-            success: true,
-            data: {
-                product_code: productCode,
-                station_code: stationCode,
-                parts: parts
-            },
-            count: parts.length,
-            message: `${productCode} - ${stationCode} の使用部品一覧を取得しました (${parts.length}件)`
-        });
-        
+        connection = await mysql.createConnection(dbConfig);
+        const [parts] = await connection.execute(query, [productCode, stationCode]);
+        res.json({ success: true, data: { product_code: productCode, station_code: stationCode, parts: parts } });
     } catch (error) {
-        console.error('使用部品一覧取得エラー:', error.message);
-        res.status(500).json({
-            success: false,
-            message: '使用部品一覧の取得に失敗しました',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: '使用部品一覧の取得に失敗しました', error: error.message });
     } finally {
         if (connection) await connection.end();
     }
@@ -340,253 +382,83 @@ router.get('/products/:productCode/stations/:stationCode/parts', authenticateTok
 
 /**
  * BOM項目追加（工程に部品追加）
- * POST /api/bom/items
- * 権限: 生産管理権限（admin, production_manager）
  */
-router.post('/items', authenticateToken, requireProductionAccess, async (req, res) => {
+router.post('/items', authenticateToken, requireAdmin, async (req, res) => {
     let connection;
-    
     try {
         const { product_code, station_code, part_code, quantity = 1, remarks = null } = req.body;
-        
-        // 入力チェック
-        if (!product_code || !station_code || !part_code) {
-            return res.status(400).json({
-                success: false,
-                message: '製品コード、工程コード、部品コードは必須です'
-            });
+        if (!product_code || !station_code || !part_code || quantity <= 0) {
+            return res.status(400).json({ success: false, message: '製品、工程、部品コードと有効な数量は必須です' });
         }
         
-        if (quantity <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: '数量は1以上である必要があります'
-            });
-        }
-        
+        // 既存の非アクティブな項目を探す
+        const findQuery = `SELECT id FROM bom_items WHERE product_code = ? AND station_code = ? AND part_code = ?`;
         connection = await mysql.createConnection(dbConfig);
-        
-        // 関連マスタの存在チェック
-        const validationQuery = `
-            SELECT 
-                (SELECT COUNT(*) FROM products WHERE product_code = ? AND is_active = TRUE) as product_exists,
-                (SELECT COUNT(*) FROM work_stations WHERE station_code = ? AND is_active = TRUE) as station_exists,
-                (SELECT COUNT(*) FROM parts WHERE part_code = ? AND is_active = TRUE) as part_exists,
-                (SELECT COUNT(*) FROM bom_items WHERE product_code = ? AND station_code = ? AND part_code = ? AND is_active = TRUE) as bom_exists
-        `;
-        
-        const [validations] = await connection.execute(validationQuery, [
-            product_code, station_code, part_code, product_code, station_code, part_code
-        ]);
-        
-        const validation = validations[0];
-        
-        if (validation.product_exists === 0) {
-            return res.status(400).json({
-                success: false,
-                message: '存在しない製品コードが指定されています'
-            });
+        const [existing] = await connection.execute(findQuery, [product_code, station_code, part_code]);
+
+        if (existing.length > 0) {
+            // 既存項目があれば更新して有効化
+            const updateQuery = `UPDATE bom_items SET quantity = ?, remarks = ?, is_active = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
+            await connection.execute(updateQuery, [quantity, remarks, existing[0].id]);
+            res.status(200).json({ success: true, message: '既存のBOM項目を更新・有効化しました' });
+        } else {
+            // なければ新規作成
+            const insertQuery = `INSERT INTO bom_items (product_code, station_code, part_code, quantity, remarks) VALUES (?, ?, ?, ?, ?)`;
+            await connection.execute(insertQuery, [product_code, station_code, part_code, quantity, remarks]);
+            res.status(201).json({ success: true, message: 'BOM項目を追加しました' });
         }
-        
-        if (validation.station_exists === 0) {
-            return res.status(400).json({
-                success: false,
-                message: '存在しない工程コードが指定されています'
-            });
-        }
-        
-        if (validation.part_exists === 0) {
-            return res.status(400).json({
-                success: false,
-                message: '存在しない部品コードが指定されています'
-            });
-        }
-        
-        if (validation.bom_exists > 0) {
-            return res.status(409).json({
-                success: false,
-                message: '同じ製品・工程・部品の組み合わせが既に存在します'
-            });
-        }
-        
-        // BOM項目追加
-        const insertQuery = `
-            INSERT INTO bom_items (product_code, station_code, part_code, quantity, remarks)
-            VALUES (?, ?, ?, ?, ?)
-        `;
-        
-        const [result] = await connection.execute(insertQuery, [product_code, station_code, part_code, quantity, remarks]);
-        
-        console.log(`[${new Date().toISOString()}] BOM項目追加: ユーザー=${req.user.username}, 製品=${product_code}, 工程=${station_code}, 部品=${part_code}, 数量=${quantity}`);
-        
-        res.status(201).json({
-            success: true,
-            data: {
-                id: result.insertId,
-                product_code,
-                station_code,
-                part_code,
-                quantity,
-                remarks,
-                created_by: req.user.username
-            },
-            message: 'BOM項目を追加しました'
-        });
-        
     } catch (error) {
-        console.error('BOM項目追加エラー:', error.message);
-        res.status(500).json({
-            success: false,
-            message: 'BOM項目の追加に失敗しました',
-            error: error.message
-        });
+        if (error.code === 'ER_DUP_ENTRY') {
+             res.status(409).json({ success: false, message: '同じ製品・工程・部品の組み合わせが既に存在します' });
+        } else {
+            res.status(500).json({ success: false, message: 'BOM項目の追加に失敗しました', error: error.message });
+        }
     } finally {
         if (connection) await connection.end();
     }
 });
 
 /**
- * BOM項目更新（数量変更等）
- * PUT /api/bom/items/:id
- * 権限: 生産管理権限（admin, production_manager）
+ * BOM項目更新
  */
-router.put('/items/:id', authenticateToken, requireProductionAccess, async (req, res) => {
+router.put('/items/:id', authenticateToken, requireAdmin, async (req, res) => {
     let connection;
-    
     try {
         const { id } = req.params;
         const { quantity, remarks } = req.body;
-        
-        // 入力チェック
         if (quantity !== undefined && quantity <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: '数量は1以上である必要があります'
-            });
+            return res.status(400).json({ success: false, message: '数量は1以上である必要があります' });
         }
-        
+        const query = `UPDATE bom_items SET quantity = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_active = TRUE`;
         connection = await mysql.createConnection(dbConfig);
-        
-        // 更新対象の存在チェック
-        const [existing] = await connection.execute(
-            'SELECT id, product_code, station_code, part_code FROM bom_items WHERE id = ? AND is_active = TRUE',
-            [id]
-        );
-        
-        if (existing.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: '指定されたBOM項目が見つかりません'
-            });
+        const [result] = await connection.execute(query, [quantity, remarks, id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: '指定されたBOM項目が見つかりません' });
         }
-        
-        // 更新フィールドを動的に構築
-        const updateFields = [];
-        const updateValues = [];
-        
-        if (quantity !== undefined) {
-            updateFields.push('quantity = ?');
-            updateValues.push(quantity);
-        }
-        
-        if (remarks !== undefined) {
-            updateFields.push('remarks = ?');
-            updateValues.push(remarks);
-        }
-        
-        if (updateFields.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: '更新する項目がありません'
-            });
-        }
-        
-        updateFields.push('updated_at = CURRENT_TIMESTAMP');
-        updateValues.push(id);
-        
-        const updateQuery = `
-            UPDATE bom_items 
-            SET ${updateFields.join(', ')}
-            WHERE id = ?
-        `;
-        
-        await connection.execute(updateQuery, updateValues);
-        
-        console.log(`[${new Date().toISOString()}] BOM項目更新: ユーザー=${req.user.username}, ID=${id}, 数量=${quantity || '未変更'}`);
-        
-        res.json({
-            success: true,
-            data: { 
-                id: parseInt(id), 
-                quantity, 
-                remarks,
-                updated_by: req.user.username
-            },
-            message: 'BOM項目を更新しました'
-        });
-        
+        res.json({ success: true, message: 'BOM項目を更新しました' });
     } catch (error) {
-        console.error('BOM項目更新エラー:', error.message);
-        res.status(500).json({
-            success: false,
-            message: 'BOM項目の更新に失敗しました',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: 'BOM項目の更新に失敗しました', error: error.message });
     } finally {
         if (connection) await connection.end();
     }
 });
 
 /**
- * BOM項目削除
- * DELETE /api/bom/items/:id
- * 権限: 生産管理権限（admin, production_manager）
+ * BOM項目削除 (論理削除)
  */
-router.delete('/items/:id', authenticateToken, requireProductionAccess, async (req, res) => {
+router.delete('/items/:id', authenticateToken, requireAdmin, async (req, res) => {
     let connection;
-    
     try {
         const { id } = req.params;
-        
+        const query = `UPDATE bom_items SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = ?`;
         connection = await mysql.createConnection(dbConfig);
-        
-        // 削除対象の存在チェック
-        const [existing] = await connection.execute(
-            'SELECT id, product_code, station_code, part_code FROM bom_items WHERE id = ? AND is_active = TRUE',
-            [id]
-        );
-        
-        if (existing.length === 0) {
-            return res.status(404).json({
-                success: false,
-                message: '指定されたBOM項目が見つかりません'
-            });
+        const [result] = await connection.execute(query, [id]);
+        if (result.affectedRows === 0) {
+            return res.status(404).json({ success: false, message: '指定されたBOM項目が見つかりません' });
         }
-        
-        // 論理削除実行
-        await connection.execute(
-            'UPDATE bom_items SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
-            [id]
-        );
-        
-        console.log(`[${new Date().toISOString()}] BOM項目削除: ユーザー=${req.user.username}, ID=${id}, 製品=${existing[0].product_code}`);
-        
-        res.json({
-            success: true,
-            data: {
-                ...existing[0],
-                deleted_by: req.user.username
-            },
-            message: 'BOM項目を削除しました'
-        });
-        
+        res.json({ success: true, message: 'BOM項目を削除しました' });
     } catch (error) {
-        console.error('BOM項目削除エラー:', error.message);
-        res.status(500).json({
-            success: false,
-            message: 'BOM項目の削除に失敗しました',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: 'BOM項目の削除に失敗しました', error: error.message });
     } finally {
         if (connection) await connection.end();
     }

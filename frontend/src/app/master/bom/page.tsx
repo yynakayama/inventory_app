@@ -11,6 +11,11 @@ interface Product {
   product_code: string
   remarks: string | null
 }
+interface Station {
+  station_code: string
+  process_group: string
+  remarks: string | null
+}
 interface StationAssociation {
   station_code: string
   process_group: string
@@ -29,7 +34,8 @@ interface BomItem {
 export default function BomPage() {
   // Global state
   const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState({ products: false, stations: false, parts: false })
+  const [allStations, setAllStations] = useState<Station[]>([])
+  const [loading, setLoading] = useState({ products: false, stations: false, parts: false, allStations: false })
   const [error, setError] = useState<string | null>(null)
 
   // Step 1: Product Selection
@@ -37,6 +43,7 @@ export default function BomPage() {
 
   // Step 2: Station Association
   const [associatedStations, setAssociatedStations] = useState<StationAssociation[]>([])
+  const [availableStations, setAvailableStations] = useState<Station[]>([])
 
   // Step 3: Part Management
   const [managingStation, setManagingStation] = useState<StationAssociation | null>(null)
@@ -44,8 +51,10 @@ export default function BomPage() {
 
   // Modal & Form State
   const [showBomModal, setShowBomModal] = useState(false)
+  const [showStationModal, setShowStationModal] = useState(false)
   const [editingBomItem, setEditingBomItem] = useState<BomItem | null>(null)
   const [bomForm, setBomForm] = useState({ part_code: '', quantity: '1', remarks: '' })
+  const [selectedStationCode, setSelectedStationCode] = useState('')
 
   // --- API Fetching Functions ---
 
@@ -62,6 +71,19 @@ export default function BomPage() {
     finally { setLoading(prev => ({ ...prev, products: false })) }
   }
 
+  const fetchAllStations = async () => {
+    setLoading(prev => ({ ...prev, allStations: true }))
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch('http://localhost:3000/api/bom/stations', { headers: { 'Authorization': `Bearer ${token}` } })
+      if (!res.ok) throw new Error('工程一覧の取得に失敗')
+      const data = await res.json()
+      if (data.success) setAllStations(data.data)
+      else throw new Error(data.message)
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setLoading(prev => ({ ...prev, allStations: false })) }
+  }
+
   const fetchAssociatedStations = async (productCode: string) => {
     setLoading(prev => ({ ...prev, stations: true }))
     setAssociatedStations([])
@@ -73,11 +95,22 @@ export default function BomPage() {
       if (!res.ok) throw new Error('工程一覧の取得に失敗')
       const data = await res.json()
       if (data.success) {
-        // APIに製品との直接の関連付け機能がないため、部品が1つ以上登録されているものを「関連済み」とみなす
-        setAssociatedStations(data.data.stations.filter((s: StationAssociation) => s.parts_count > 0))
+        setAssociatedStations(data.data.stations)
       } else { throw new Error(data.message) }
     } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
     finally { setLoading(prev => ({ ...prev, stations: false })) }
+  }
+
+  const fetchAvailableStations = async (productCode: string) => {
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`http://localhost:3000/api/bom/products/${productCode}/available-stations`, { headers: { 'Authorization': `Bearer ${token}` } })
+      if (!res.ok) throw new Error('利用可能工程一覧の取得に失敗')
+      const data = await res.json()
+      if (data.success) {
+        setAvailableStations(data.data)
+      } else { throw new Error(data.message) }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
   }
 
   const fetchBomItems = async (productCode: string, stationCode: string) => {
@@ -101,9 +134,11 @@ export default function BomPage() {
     if (product) {
       setSelectedProduct(product)
       fetchAssociatedStations(product.product_code)
+      fetchAvailableStations(product.product_code)
     } else {
       setSelectedProduct(null)
       setAssociatedStations([])
+      setAvailableStations([])
       setManagingStation(null)
     }
   }
@@ -115,13 +150,52 @@ export default function BomPage() {
     }
   }
 
-  const handleAddStation = () => {
-    alert('現在この機能は利用できません。製品に工程を直接関連付けるAPIが必要です。')
+  const handleAddStationAssociation = () => {
+    setSelectedStationCode('')
+    setShowStationModal(true)
+  }
+
+  const associateStation = async () => {
+    if (!selectedProduct || !selectedStationCode) {
+      alert('工程を選択してください')
+      return
+    }
+
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`http://localhost:3000/api/bom/products/${selectedProduct.product_code}/stations/${selectedStationCode}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.message || '工程の関連付けに失敗しました')
+
+      alert(data.message)
+      setShowStationModal(false)
+      fetchAssociatedStations(selectedProduct.product_code)
+      fetchAvailableStations(selectedProduct.product_code)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'エラーが発生しました')
+    }
   }
   
-  const handleDeleteAssociation = () => {
-    // TODO: バックエンドに製品と工程の関連付けを解除するAPI(e.g., DELETE /api/bom/products/:productCode/stations/:stationCode)が実装されたら、この機能を有効化する
-    alert('現在この機能は利用できません。工程の関連付けを解除するAPIが必要です。')
+  const handleDeleteAssociation = async (stationCode: string) => {
+    if (!selectedProduct || !confirm(`製品「${selectedProduct.product_code}」から工程「${stationCode}」の関連付けを解除しますか？\nこの工程に登録されている全部品がBOMから削除されます。`)) return
+
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`http://localhost:3000/api/bom/products/${selectedProduct.product_code}/stations/${stationCode}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      const data = await res.json()
+      if (!res.ok || !data.success) throw new Error(data.message || '工程の関連付け解除に失敗しました')
+
+      alert('工程の関連付けを解除しました')
+      await fetchAssociatedStations(selectedProduct.product_code)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'エラーが発生しました')
+    }
   }
 
   const saveBomItem = async () => {
@@ -148,7 +222,6 @@ export default function BomPage() {
       alert(`BOM項目を${editingBomItem ? '更新' : '追加'}しました。`)
       setShowBomModal(false)
       fetchBomItems(selectedProduct.product_code, managingStation.station_code)
-      // 部品数を更新するために工程一覧も再取得
       fetchAssociatedStations(selectedProduct.product_code)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'エラーが発生しました')
@@ -169,14 +242,16 @@ export default function BomPage() {
 
       alert('BOM項目を削除しました')
       fetchBomItems(selectedProduct.product_code, managingStation.station_code)
-      // 部品数を更新するために工程一覧も再取得
       fetchAssociatedStations(selectedProduct.product_code)
     } catch (e) {
       alert(e instanceof Error ? e.message : 'エラーが発生しました')
     }
   }
 
-  useEffect(() => { fetchProducts() }, [])
+  useEffect(() => {
+    fetchProducts()
+    fetchAllStations()
+  }, [])
 
   return (
     <RouteGuard>
@@ -205,7 +280,7 @@ export default function BomPage() {
             <div className="bg-white p-6 rounded-lg shadow-sm border">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-semibold">Step 2: 作業工程 ({selectedProduct.product_code})</h2>
-                <Button onClick={handleAddStation} disabled>➕ 工程を追加</Button>
+                <Button onClick={handleAddStationAssociation}>➕ 工程を追加</Button>
               </div>
               {loading.stations ? <p>読み込み中...</p> : (
                 <div className="space-y-2">
@@ -218,7 +293,7 @@ export default function BomPage() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm text-gray-600 bg-gray-200 px-2 py-1 rounded-full">{s.parts_count} 部品</span>
                         <Button variant="outline" size="sm" onClick={() => handleManageStationParts(s)}>部品を管理</Button>
-                        <Button variant="danger" size="sm" onClick={handleDeleteAssociation} disabled>削除</Button>
+                        <Button variant="danger" size="sm" onClick={() => handleDeleteAssociation(s.station_code)}>削除</Button>
                       </div>
                     </div>
                   )) : <p className="text-gray-500 text-center py-4">関連付けられた工程がありません。</p>}
@@ -281,6 +356,39 @@ export default function BomPage() {
               <div className="flex justify-end gap-2 mt-6">
                 <Button variant="secondary" onClick={() => setShowBomModal(false)}>キャンセル</Button>
                 <Button onClick={saveBomItem}>{editingBomItem ? '更新' : '追加'}</Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Station Association Modal */}
+        {showStationModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-4">工程を関連付け</h3>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">工程を選択</label>
+                  <select
+                    value={selectedStationCode}
+                    onChange={(e) => setSelectedStationCode(e.target.value)}
+                    className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">工程を選択してください...</option>
+                    {availableStations.map(station => (
+                      <option key={station.station_code} value={station.station_code}>
+                        {station.station_code} - {station.process_group} {station.remarks && `(${station.remarks})`}
+                      </option>
+                    ))}
+                  </select>
+                  {availableStations.length === 0 && (
+                    <p className="text-sm text-gray-500 mt-1">関連付け可能な工程がありません</p>
+                  )}
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 mt-6">
+                <Button variant="secondary" onClick={() => setShowStationModal(false)}>キャンセル</Button>
+                <Button onClick={associateStation} disabled={!selectedStationCode}>追加</Button>
               </div>
             </div>
           </div>

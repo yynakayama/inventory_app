@@ -18,35 +18,26 @@ export default function ProductsPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Modal state
   const [showProductModal, setShowProductModal] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
 
-  // Form state
   const [productForm, setProductForm] = useState({
     product_code: '',
     remarks: ''
   })
 
-  // Fetch all products
   const fetchProducts = async () => {
     try {
       setLoading(true)
       setError(null)
-
       const token = localStorage.getItem('token')
       const response = await fetch('http://localhost:3000/api/bom/products', {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-
       if (!response.ok) throw new Error('製品一覧の取得に失敗しました')
-
       const result = await response.json()
-      if (result.success) {
-        setProducts(result.data)
-      } else {
-        throw new Error(result.message)
-      }
+      if (result.success) setProducts(result.data)
+      else throw new Error(result.message)
     } catch (err) {
       setError(err instanceof Error ? err.message : '製品一覧の取得エラー')
     } finally {
@@ -54,68 +45,65 @@ export default function ProductsPage() {
     }
   }
 
-  // Handle opening the modal for new product creation
   const handleNewProduct = () => {
     setIsEditing(false)
     setProductForm({ product_code: '', remarks: '' })
     setShowProductModal(true)
   }
 
-  // Handle opening the modal for editing a product
   const handleEditProduct = (product: Product) => {
-    // TODO: バックエンドに製品更新API(PUT /api/bom/products/:product_code)が実装されたら、この機能を有効化する
-    alert('製品編集機能は現在利用できません。')
-    // setIsEditing(true)
-    // setProductForm({ product_code: product.product_code, remarks: product.remarks || '' })
-    // setShowProductModal(true)
+    setIsEditing(true)
+    setProductForm({ product_code: product.product_code, remarks: product.remarks || '' })
+    setShowProductModal(true)
   }
 
-  // Handle product deletion
   const handleDeleteProduct = async (productCode: string) => {
-    // TODO: バックエンドに製品削除API(DELETE /api/bom/products/:product_code)が実装されたら、この機能を有効化する
-    alert('製品削除機能は現在利用できません。')
-    // if (!confirm(`製品「${productCode}」を本当に削除しますか？`)) return
-    // ... API call logic here
-  }
-
-  // Handle form submission (Create or Update)
-  const handleSubmit = async () => {
-    if (isEditing) {
-      // Update logic (currently disabled)
-      alert('製品更新APIはまだ実装されていません。')
-    } else {
-      // Create logic
-      try {
-        setLoading(true)
-        const token = localStorage.getItem('token')
-        const response = await fetch('http://localhost:3000/api/bom/products', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(productForm)
-        })
-
-        const result = await response.json()
-        if (!response.ok || !result.success) {
-          throw new Error(result.message || '製品の作成に失敗しました')
-        }
-
-        await fetchProducts()
-        setShowProductModal(false)
-        alert('製品を作成しました')
-      } catch (err) {
-        alert(err instanceof Error ? err.message : '製品作成エラー')
-      } finally {
-        setLoading(false)
-      }
+    if (!confirm(`製品「${productCode}」を本当に削除しますか？この操作は元に戻せません。`)) return
+    try {
+      setLoading(true)
+      const token = localStorage.getItem('token')
+      const response = await fetch(`http://localhost:3000/api/bom/products/${productCode}`,
+        { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } }
+      )
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.message || '製品の削除に失敗しました')
+      alert('製品を削除しました')
+      await fetchProducts()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '製品削除エラー')
+    } finally {
+      setLoading(false)
     }
   }
 
-  useEffect(() => {
-    fetchProducts()
-  }, [])
+  const handleSubmit = async () => {
+    const url = isEditing
+      ? `http://localhost:3000/api/bom/products/${productForm.product_code}`
+      : 'http://localhost:3000/api/bom/products'
+    const method = isEditing ? 'PUT' : 'POST'
+
+    try {
+      setLoading(true)
+      const token = localStorage.getItem('token')
+      const response = await fetch(url, {
+        method,
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(productForm)
+      })
+      const result = await response.json()
+      if (!response.ok || !result.success) throw new Error(result.message || `製品の${isEditing ? '更新' : '作成'}に失敗しました`)
+      
+      alert(`製品を${isEditing ? '更新' : '作成'}しました`)
+      setShowProductModal(false)
+      await fetchProducts()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : `製品${isEditing ? '更新' : '作成'}エラー`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { fetchProducts() }, [])
 
   const filteredProducts = products.filter(product =>
     searchTerm === '' ||
@@ -171,10 +159,10 @@ export default function ProductsPage() {
                         <td className="px-4 py-4 text-sm text-gray-500">{product.remarks || '-'}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">{new Date(product.updated_at).toLocaleString('ja-JP')}</td>
                         <td className="px-4 py-4 whitespace-nowrap text-sm space-x-2">
-                          <Button size="sm" variant="outline" onClick={() => handleEditProduct(product)} disabled>
+                          <Button size="sm" variant="outline" onClick={() => handleEditProduct(product)}>
                             編集
                           </Button>
-                          <Button size="sm" variant="danger" onClick={() => handleDeleteProduct(product.product_code)} disabled>
+                          <Button size="sm" variant="danger" onClick={() => handleDeleteProduct(product.product_code)}>
                             削除
                           </Button>
                         </td>
@@ -187,7 +175,6 @@ export default function ProductsPage() {
           </div>
         </div>
 
-        {/* Product Create/Edit Modal */}
         {showProductModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-lg p-6 w-full max-w-md">
@@ -199,7 +186,7 @@ export default function ProductsPage() {
                     type="text"
                     value={productForm.product_code}
                     onChange={(e) => setProductForm(prev => ({ ...prev, product_code: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100"
                     placeholder="例: PROD-001"
                     disabled={isEditing}
                   />
@@ -216,18 +203,8 @@ export default function ProductsPage() {
                 </div>
               </div>
               <div className="flex gap-2 mt-6 justify-end">
-                <Button
-                  variant="secondary"
-                  onClick={() => setShowProductModal(false)}
-                  disabled={loading}
-                >
-                  キャンセル
-                </Button>
-                <Button
-                  onClick={handleSubmit}
-                  disabled={!productForm.product_code.trim() || loading || isEditing}
-                  isLoading={loading}
-                >
+                <Button variant="secondary" onClick={() => setShowProductModal(false)} disabled={loading}>キャンセル</Button>
+                <Button onClick={handleSubmit} disabled={!productForm.product_code.trim() || loading} isLoading={loading}>
                   {isEditing ? '更新' : '作成'}
                 </Button>
               </div>
