@@ -195,37 +195,55 @@ router.get('/procurement-needed', authenticateToken, requireReadAccess, async (r
                     -- 概算調達金額（全計画の合計）
                     ROUND(SUM(isc.shortage_quantity) * COALESCE(p.unit_price, 0), 2) as estimated_cost,
                     
-                    -- 該当部品の全予定入荷数量を計算（納期回答待ち + 入荷予定）
-                    COALESCE(SUM(CASE 
-                        WHEN sr.status IN ('納期回答待ち', '入荷予定') 
-                        THEN COALESCE(sr.scheduled_quantity, sr.order_quantity) 
-                        ELSE 0 
-                    END), 0) as total_scheduled_receipts
-                    
+                    -- 該当部品の全予定入荷数量を計算（サブクエリで取得）
+                    COALESCE((
+                        SELECT SUM(COALESCE(sr.scheduled_quantity, sr.order_quantity))
+                        FROM scheduled_receipts sr
+                        WHERE sr.part_code = isc.part_code
+                        AND sr.status IN ('納期回答待ち', '入荷予定')
+                    ), 0) as total_scheduled_receipts
+
                 FROM inventory_sufficiency_check isc
                 INNER JOIN parts p ON isc.part_code = p.part_code
-                LEFT JOIN scheduled_receipts sr ON isc.part_code = sr.part_code 
-                    AND sr.status IN ('納期回答待ち', '入荷予定')
                 WHERE isc.shortage_quantity > 0  -- 不足がある部品のみ
-                GROUP BY 
-                    isc.part_code, 
-                    p.specification, 
-                    p.category, 
-                    p.supplier, 
-                    p.unit_price, 
+                GROUP BY
+                    isc.part_code,
+                    p.specification,
+                    p.category,
+                    p.supplier,
+                    p.unit_price,
                     p.lead_time_days
             )
             SELECT *,
-                   -- 実際の追加発注必要数量
-                   GREATEST(0, shortage_quantity - total_scheduled_receipts) as additional_order_needed
+                   -- 実際の追加発注必要数量（ビューの影響を受けない純粋な計算）
+                   GREATEST(0, (
+                       -- 総必要数量を再計算
+                       SELECT SUM(ppr.required_quantity)
+                       FROM production_plan_requirements ppr
+                       WHERE ppr.part_code = shortage_with_receipts.part_code
+                       AND ppr.plan_status = '計画'
+                   ) - current_stock - total_scheduled_receipts) as additional_order_needed,
+                   -- 純粋な総必要数量
+                   (
+                       SELECT SUM(ppr.required_quantity)
+                       FROM production_plan_requirements ppr
+                       WHERE ppr.part_code = shortage_with_receipts.part_code
+                       AND ppr.plan_status = '計画'
+                   ) as pure_total_required
             FROM shortage_with_receipts
-            WHERE shortage_quantity > total_scheduled_receipts  -- 予定入荷を超える不足がある場合のみ
+            WHERE GREATEST(0, (
+                       SELECT SUM(ppr.required_quantity)
+                       FROM production_plan_requirements ppr
+                       WHERE ppr.part_code = shortage_with_receipts.part_code
+                       AND ppr.plan_status = '計画'
+                   ) - current_stock - total_scheduled_receipts) > 0  -- 純粋な計算で追加発注が必要な場合のみ
             ORDER BY 
                 procurement_due_date ASC,  -- 調達期限の早い順
                 shortage_quantity DESC     -- 不足数量の多い順
         `;
 
         const [results] = await connection.execute(query);
+
 
         // サマリー情報の計算
         const summary = {

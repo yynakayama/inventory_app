@@ -58,7 +58,7 @@ export default function LoginPage() {
 
       if (result.success) {
         // ログイン成功時はダッシュボードにリダイレクト
-        router.push('/')
+        router.push('/dashboard')
       } else {
         // ログイン失敗時のエラー表示
         setError(result.message || 'ログインに失敗しました')

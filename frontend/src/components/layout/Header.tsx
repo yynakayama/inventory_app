@@ -56,11 +56,7 @@ export function Header() {
   const hasRole = (allowedRoles: string[]) => {
     if (!user?.role) return false
     const hasPermission = allowedRoles.includes(user.role)
-    console.log('🔍 権限チェック:', {
-      userRole: user.role,
-      allowedRoles: allowedRoles,
-      hasPermission: hasPermission
-    })
+
     return hasPermission
   }
 
