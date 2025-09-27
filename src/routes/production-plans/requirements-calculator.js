@@ -109,7 +109,7 @@ async function performRequirementsCalculation(connection, planId, planInfo) {
     console.log(`🔄 所要量計算実行中...`);
 
     // 在庫充足性チェック付き所要量計算（inventory_sufficiency_check VIEWを使用）
-    const [requirements] = await connection.execute(
+    const [rawRequirements] = await connection.execute(
         `SELECT 
             plan_id,
             product_code,
@@ -131,6 +131,26 @@ async function performRequirementsCalculation(connection, planId, planInfo) {
         ORDER BY part_code`,
         [planId]
     );
+
+    // 部品コードごとに所要量を集約
+    const requirementsMap = new Map();
+    for (const req of rawRequirements) {
+        if (requirementsMap.has(req.part_code)) {
+            const existing = requirementsMap.get(req.part_code);
+            existing.required_quantity += req.required_quantity;
+            // plan_reserved_quantityも同様に合算する
+            existing.plan_reserved_quantity += req.plan_reserved_quantity;
+        } else {
+            requirementsMap.set(req.part_code, { ...req });
+        }
+    }
+
+    const requirements = [];
+    for (const req of requirementsMap.values()) {
+        // 不足数を再計算
+        req.shortage_quantity = Math.max(0, req.required_quantity - req.available_stock);
+        requirements.push(req);
+    }
 
     console.log(`📋 所要量計算結果: ${requirements.length}種類の部品`);
 

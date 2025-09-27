@@ -32,18 +32,19 @@ async function createReservations(connection, planId, productCode, plannedQuanti
     console.log(`🔄 在庫予約作成開始: 計画ID=${planId}, 製品=${productCode}, 数量=${plannedQuantity}`);
     
     try {
-        // BOM展開で必要部品と数量を取得
+        // BOM展開で必要部品と数量を取得（部品ごとに集計）
         const [bomResults] = await connection.execute(
             `SELECT 
                 b.part_code,
-                b.quantity as unit_quantity,
-                (b.quantity * ?) as required_quantity,
+                SUM(b.quantity) as unit_quantity,
+                (SUM(b.quantity) * ?) as required_quantity,
                 p.specification as part_specification
             FROM bom_items b
             INNER JOIN parts p ON b.part_code = p.part_code
             WHERE b.product_code = ? 
             AND b.is_active = TRUE 
             AND p.is_active = TRUE
+            GROUP BY b.part_code, p.specification
             ORDER BY b.part_code`,
             [plannedQuantity, productCode]
         );
