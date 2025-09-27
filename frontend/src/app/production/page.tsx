@@ -63,6 +63,7 @@ function ProductionPlansContent() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showRequirementModal, setShowRequirementModal] = useState(false)
+  const [newStartDate, setNewStartDate] = useState('')
   
   // フォーム状態
   const [planForm, setPlanForm] = useState<PlanForm>({
@@ -95,6 +96,13 @@ function ProductionPlansContent() {
   useEffect(() => {
     fetchProductionPlans(searchFilters)
   }, [searchFilters])
+
+  // スケジュール変更モーダル用に開始日をセット
+  useEffect(() => {
+    if (selectedPlan) {
+      setNewStartDate(selectedPlan.start_date.split('T')[0]);
+    }
+  }, [selectedPlan]);
 
   // 生産計画一覧を取得
   const fetchProductionPlans = async (searchFilters?: SearchFilters) => {
@@ -464,6 +472,57 @@ function ProductionPlansContent() {
     }
   }
 
+  // スケジュール更新処理
+  const handleUpdateSchedule = async () => {
+    if (!selectedPlan || !newStartDate) return;
+
+    const confirmed = window.confirm(
+      `生産計画の開始日を ${newStartDate} に変更しますか？\n\n※開始日の変更後、所要量が再計算されます。`
+    );
+    if (!confirmed) return;
+
+    try {
+      setLoading(true);
+      setError('');
+      const token = localStorage.getItem('token');
+
+      // We need the full plan data to send to the PUT endpoint
+      const planToUpdate = {
+        ...selectedPlan,
+        start_date: newStartDate,
+      };
+
+      const response = await fetch(`http://localhost:3000/api/plans/${selectedPlan.id}`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(planToUpdate),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'スケジュールの更新に失敗しました');
+      }
+
+      alert('スケジュールを更新しました。所要量を再計算します。');
+      
+      // Re-fetch the main plan list to show the new date in the table
+      await fetchProductionPlans();
+      
+      // Re-run the requirement calculation for the modal
+      // The selectedPlan in state is now stale, so we create a temporary updated one
+      const updatedSelectedPlan = { ...selectedPlan, start_date: newStartDate };
+      await handleRequirementCalculation(updatedSelectedPlan);
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'スケジュール更新エラー');
+    } finally {
+      setLoading(false);
+    }
+  };
+
 
   // ローディング状態
   if (loading && productionPlans.length === 0) {
@@ -809,12 +868,12 @@ function ProductionPlansContent() {
               {requirementResult.shortage_summary.has_shortage && canManageProduction() && (
                 <div className="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                   <h4 className="text-sm font-medium text-yellow-800 mb-2">💡 推奨アクション</h4>
-                  <div className="text-sm text-yellow-700 space-y-2">
-                    <p>• 不足部品の発注を行ってください</p>
-                    <p>• 代替部品の使用可能性を検討してください</p>
-                    <p>• 生産スケジュールの調整を検討してください</p>
+                  
+                  {/* Action 1: Procurement */}
+                  <div className="text-sm text-yellow-700 space-y-1 mb-3">
+                    <p>• 不足部品の発注を行ってください。</p>
                   </div>
-                  <div className="mt-3">
+                  <div className="mb-4">
                     <Button
                       size="sm"
                       onClick={() => {
@@ -824,6 +883,27 @@ function ProductionPlansContent() {
                       className="bg-yellow-600 hover:bg-yellow-700"
                     >
                       📝 調達管理で発注確認
+                    </Button>
+                  </div>
+
+                  {/* Action 2: Adjust Schedule */}
+                  <div className="text-sm text-yellow-700 space-y-1 pt-3 border-t border-yellow-200">
+                     <p>• 生産スケジュールの調整を検討してください。</p>
+                  </div>
+                  <div className="mt-3 flex items-center gap-4">
+                    <input
+                      type="date"
+                      value={newStartDate}
+                      onChange={(e) => setNewStartDate(e.target.value)}
+                      className="block w-full sm:w-auto px-3 py-2 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={handleUpdateSchedule}
+                      className="bg-yellow-600 hover:bg-yellow-700"
+                      disabled={loading || newStartDate === selectedPlan?.start_date.split('T')[0]}
+                    >
+                      🗓️ スケジュール更新
                     </Button>
                   </div>
                 </div>

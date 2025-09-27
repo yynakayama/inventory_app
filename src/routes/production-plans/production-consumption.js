@@ -123,19 +123,50 @@ router.post('/:id/start-production', requireProductionAccess, async (req, res) =
 
         console.log(`✅ 在庫充足性確認: すべての部材が充足`);
 
-        // 4. 部材消費処理（在庫減算）
+        // ★【NEW】物理在庫の最終チェック
+        // 計画上は充足していても、実行日時点での物理在庫が足りているかを確認
+        const physicalShortages = requirements.filter(req => req.current_stock < req.required_quantity);
+
+        if (physicalShortages.length > 0) {
+            await connection.rollback();
+            const shortageDetails = physicalShortages.map(part => 
+                `${part.part_code}: 不足 ${part.required_quantity - part.current_stock}個 (現在庫: ${part.current_stock})`
+            ).join(', ');
+
+            return res.status(400).json({
+                success: false,
+                message: `在庫が不足しているため生産を開始できません。入荷処理が完了しているか確認してください。不足部材: ${shortageDetails}`,
+                error: 'INSUFFICIENT_PHYSICAL_INVENTORY',
+                shortage_details: physicalShortages.map(part => ({
+                    part_code: part.part_code,
+                    required_quantity: part.required_quantity,
+                    current_stock: part.current_stock,
+                    shortage_quantity: part.required_quantity - part.current_stock
+                }))
+            });
+        }
+
+        // 4. 部材消費処理（在庫減算） - ★競合状態対策済み
         const consumptionResults = [];
         
         for (const requirement of requirements) {
             const { part_code, required_quantity } = requirement;
             
-            // 現在の在庫数を取得
+            // ★ トランザクション内でレコードをロックして在庫を再確認
             const [stockResults] = await connection.execute(
-                'SELECT current_stock FROM inventory WHERE part_code = ?',
+                'SELECT current_stock FROM inventory WHERE part_code = ? FOR UPDATE',
                 [part_code]
             );
 
             const currentStock = stockResults[0].current_stock;
+
+            // ★ ロック後に再度在庫チェック
+            if (currentStock < required_quantity) {
+                // このループの前にチェックしているが、競合により在庫が減った場合、ここで検知する
+                await connection.rollback();
+                throw new Error(`在庫の競合が発生しました。部品 ${part_code} の在庫が不足しています。(必要: ${required_quantity}, 現在庫: ${currentStock})`);
+            }
+
             const newStock = currentStock - required_quantity;
 
             // 在庫減算実行
@@ -169,7 +200,7 @@ router.post('/:id/start-production', requireProductionAccess, async (req, res) =
                 stock_after: newStock
             });
 
-            console.log(`📦 部材消費: ${part_code} ${required_quantity}個 (${currentStock} → ${newStock})`);
+            console.log(`📦 部材消費 (ロック確保済): ${part_code} ${required_quantity}個 (${currentStock} → ${newStock})`);
         }
 
         // 5. 生産計画のステータスを「生産中」に更新
