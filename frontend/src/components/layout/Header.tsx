@@ -44,6 +44,7 @@ export function Header() {
       roles: ['admin'], // 管理者のみ
       children: [
         { label: '部品マスタ', href: '/master/parts', roles: ['admin'] },
+        { label: 'カテゴリマスタ', href: '/master/categories', roles: ['admin'] },
         { label: '製品マスタ', href: '/master/products', roles: ['admin'] },
         { label: '工程マスタ', href: '/master/stations', roles: ['admin'] },
         { label: 'BOM管理', href: '/master/bom', roles: ['admin'] },

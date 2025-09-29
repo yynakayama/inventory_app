@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import MasterNavigationTabs from '@/components/master/MasterNavigationTabs'
 import RouteGuard from '@/components/guards/RouteGuard'
 import PermissionGuard from '@/components/guards/PermissionGuard'
 import Button from '@/components/ui/Button'
@@ -115,6 +116,7 @@ export default function ProductsPage() {
     <RouteGuard>
       <PermissionGuard requiredRoles={['admin']}>
         <div className="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen">
+          <MasterNavigationTabs />
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900 mb-2">📦 製品マスタ管理</h1>
             <p className="text-gray-600">製品の基本情報を管理します。</p>

@@ -16,6 +16,7 @@ const stocktakingRoutes = require('./src/routes/stocktaking');
 const procurementAlertsRoutes = require('./src/routes/procurement-alerts');
 const reportsRoutes = require('./src/routes/reports');
 const usersRoutes = require('./src/routes/users');
+const categoriesRoutes = require('./src/routes/categories');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -223,6 +224,7 @@ app.use('/api/stocktaking', stocktakingRoutes);
 app.use('/api/procurement-alerts', procurementAlertsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/categories', categoriesRoutes);
 
 
 // 404エラーハンドリング

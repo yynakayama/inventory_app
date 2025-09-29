@@ -26,29 +26,23 @@ CREATE TABLE IF NOT EXISTS parts (
     INDEX idx_lead_time (lead_time_days)
 ) COMMENT='部品マスタテーブル - 部品コードのみ設計';
 
--- 2. 部品カテゴリマスタテーブル（将来の拡張用）
+-- 2. 部品カテゴリマスタテーブル（プレースホルダ実装）
 CREATE TABLE IF NOT EXISTS part_categories (
     category_code VARCHAR(20) PRIMARY KEY COMMENT 'カテゴリコード',
     category_name VARCHAR(50) NOT NULL COMMENT 'カテゴリ名',
-    parent_category VARCHAR(20) NULL COMMENT '親カテゴリコード',
-    sort_order INT DEFAULT 0 COMMENT '表示順序',
     is_active BOOLEAN DEFAULT TRUE COMMENT 'アクティブフラグ',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
-    
-    -- 外部キー制約
-    FOREIGN KEY (parent_category) REFERENCES part_categories(category_code)
-) COMMENT='部品カテゴリマスタ';
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時'
+) COMMENT='部品カテゴリマスタ - プレースホルダ実装';
 
--- 3. 初期データ投入 - 部品カテゴリ
-INSERT INTO part_categories (category_code, category_name, sort_order) VALUES
-('MECH', '機械部品', 1),
-('ELEC', '電子部品', 2),
-('RESIN', '樹脂部品', 3),
-('METAL', '金属加工品', 4),
-('PACK', '包装材料', 5)
+-- 3. 初期データ投入 - 部品カテゴリ（プレースホルダ）
+INSERT INTO part_categories (category_code, category_name) VALUES
+('MECH', '機械部品'),
+('ELEC', '電子部品'),
+('RESIN', '樹脂部品'),
+('METAL', '金属加工品'),
+('PACK', '包装材料')
 ON DUPLICATE KEY UPDATE
-    category_name = VALUES(category_name),
-    sort_order = VALUES(sort_order);
+    category_name = VALUES(category_name);
 
 -- 4. 初期データ投入 - 部品マスタ（体系的な部品コード）
 INSERT INTO parts (

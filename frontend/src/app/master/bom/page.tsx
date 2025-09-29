@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import MasterNavigationTabs from '@/components/master/MasterNavigationTabs'
 import RouteGuard from '@/components/guards/RouteGuard'
 import PermissionGuard from '@/components/guards/PermissionGuard'
 import Button from '@/components/ui/Button'
@@ -257,6 +258,7 @@ export default function BomPage() {
     <RouteGuard>
       <PermissionGuard requiredRoles={['admin']}>
         <div className="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen space-y-6">
+          <MasterNavigationTabs />
           <div className="mb-6">
             <h1 className="text-2xl font-bold text-gray-900 mb-2">🔗 BOM管理</h1>
             <p className="text-gray-600">製品、工程、使用部品の関連を管理します。</p>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/providers/AuthProvider'
+import MasterNavigationTabs from '@/components/master/MasterNavigationTabs'
 import Button from '@/components/ui/Button'
 import Modal from '@/components/ui/Modal'
 
@@ -303,12 +304,15 @@ export default function PartsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* ページヘッダー */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">部品マスター管理</h1>
-        <p className="text-gray-600">部品の基本情報を管理します</p>
-      </div>
+    <div className="container mx-auto px-4 py-8">
+      <MasterNavigationTabs />
+
+      <div className="space-y-6">
+        {/* ページヘッダー */}
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-gray-900">部品マスター管理</h1>
+          <p className="text-gray-600">部品の基本情報を管理します</p>
+        </div>
 
       {/* エラー表示 */}
       {error && (
@@ -631,6 +635,7 @@ export default function PartsPage() {
           </div>
         </form>
       </Modal>
+      </div>
     </div>
   )
 }

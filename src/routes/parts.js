@@ -39,13 +39,12 @@ router.get('/categories', async (req, res) => {
         connection = await mysql.createConnection(dbConfig);
         
         const query = `
-            SELECT 
+            SELECT
                 category_code,
-                category_name,
-                sort_order
-            FROM part_categories 
+                category_name
+            FROM part_categories
             WHERE is_active = TRUE
-            ORDER BY sort_order
+            ORDER BY category_code
         `;
         
         const [results] = await connection.execute(query);
