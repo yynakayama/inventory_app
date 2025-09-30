@@ -16,7 +16,7 @@ import {
   SearchFilters,
   PlanForm
 } from '@/types/production'
-import { getConditionalRowColor } from '@/utils/tableRowColors'
+import { getConditionalRowColor, getThreeStageRowColor } from '@/utils/tableRowColors'
 
 // インポートした型定義を使用
 
@@ -780,9 +780,6 @@ function ProductionPlansContent() {
                     <div className="flex items-center">
                       <span className="text-green-600 font-medium">✅ すべての部品が充足しています</span>
                     </div>
-                    <p className="text-sm text-green-700 mt-1">
-                      現在の在庫で生産可能です。
-                    </p>
                   </div>
                 )}
               </div>
@@ -819,7 +816,10 @@ function ProductionPlansContent() {
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                       {requirementResult.requirements.map((req, index) => (
-                        <tr key={index} className={req.shortage_quantity > 0 ? 'bg-red-50' : 'hover:bg-gray-50'}>
+                        <tr key={index} className={getThreeStageRowColor(
+                          req.shortage_quantity > 0,  // 不足
+                          req.is_awaiting_receipt      // 入荷待ち
+                        )}>
                           <td className="px-4 py-3 text-sm font-medium text-gray-900">
                             {req.part_code}
                           </td>
@@ -850,6 +850,10 @@ function ProductionPlansContent() {
                             {req.shortage_quantity > 0 ? (
                               <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-red-100 text-red-800 rounded-full">
                                 🔴 不足
+                              </span>
+                            ) : req.is_awaiting_receipt ? (
+                              <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
+                                ⏳ 入荷待ち
                               </span>
                             ) : (
                               <span className="inline-flex items-center px-2 py-1 text-xs font-medium bg-green-100 text-green-800 rounded-full">

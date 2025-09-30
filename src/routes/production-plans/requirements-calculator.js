@@ -254,6 +254,7 @@ function buildCalculationResult(planInfo, requirements, stationDetails) {
             available_stock: req.available_stock,
             shortage_quantity: req.shortage_quantity,
             is_sufficient: req.shortage_quantity <= 0,
+            is_awaiting_receipt: req.current_stock < req.required_quantity && req.shortage_quantity <= 0,
             procurement_due_date: req.procurement_due_date,
             supplier: req.supplier,
             lead_time_days: req.lead_time_days,

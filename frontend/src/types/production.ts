@@ -44,6 +44,7 @@ export interface RequirementItem {
   available_stock: number
   shortage_quantity: number
   is_sufficient: boolean
+  is_awaiting_receipt: boolean
   procurement_due_date: string
   supplier: string
   lead_time_days: number
