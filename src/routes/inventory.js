@@ -36,13 +36,14 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
         connection = await mysql.createConnection(dbConfig);
         
         let sql = `
-            SELECT 
+            SELECT
                 i.part_code,
                 p.specification,
                 p.safety_stock,
                 p.lead_time_days,
                 p.supplier,
                 p.category,
+                pc.category_name,
                 i.current_stock,
                 i.reserved_stock,
                 (i.current_stock - i.reserved_stock) as available_stock,
@@ -53,6 +54,7 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
                 END as is_low_stock
             FROM inventory i
             INNER JOIN parts p ON i.part_code = p.part_code
+            LEFT JOIN part_categories pc ON p.category = pc.category_code
             WHERE p.is_active = true
         `;
         
@@ -182,13 +184,14 @@ router.get('/:part_code', authenticateToken, requireReadAccess, async (req, res)
         connection = await mysql.createConnection(dbConfig);
         
         const sql = `
-            SELECT 
+            SELECT
                 i.part_code,
                 p.specification,
                 COALESCE(p.safety_stock, 0) as safety_stock,
                 COALESCE(p.lead_time_days, 0) as lead_time_days,
                 p.supplier,
                 p.category,
+                pc.category_name,
                 p.unit_price,
                 i.current_stock,
                 COALESCE(SUM(ir.reserved_quantity), 0) as reserved_stock,
@@ -200,11 +203,12 @@ router.get('/:part_code', authenticateToken, requireReadAccess, async (req, res)
                 END as is_low_stock
             FROM inventory i
             LEFT JOIN parts p ON i.part_code = p.part_code AND p.is_active = true
+            LEFT JOIN part_categories pc ON p.category = pc.category_code
             LEFT JOIN inventory_reservations ir ON i.part_code = ir.part_code
             WHERE i.part_code = ?
-            GROUP BY 
-                i.part_code, p.specification, p.safety_stock, p.lead_time_days, 
-                p.supplier, p.category, p.unit_price, i.current_stock, i.updated_at
+            GROUP BY
+                i.part_code, p.specification, p.safety_stock, p.lead_time_days,
+                p.supplier, p.category, pc.category_name, p.unit_price, i.current_stock, i.updated_at
         `;
         
         const [results] = await connection.execute(sql, [part_code]);

@@ -131,42 +131,44 @@ router.get('/', authenticateToken, requireReadAccess, async (req, res) => {
         connection = await mysql.createConnection(dbConfig);
         
         let query = `
-            SELECT 
-                part_code,
-                specification,
-                unit,
-                lead_time_days,
-                safety_stock,
-                supplier,
-                category,
-                unit_price,
-                created_at,
-                updated_at
-            FROM parts 
-            WHERE is_active = TRUE
+            SELECT
+                p.part_code,
+                p.specification,
+                p.unit,
+                p.lead_time_days,
+                p.safety_stock,
+                p.supplier,
+                p.category,
+                pc.category_name,
+                p.unit_price,
+                p.created_at,
+                p.updated_at
+            FROM parts p
+            LEFT JOIN part_categories pc ON p.category = pc.category_code
+            WHERE p.is_active = TRUE
         `;
         
         const params = [];
         
         // 検索条件追加（部品コードまたは仕様での検索）
         if (search && search.trim()) {
-            query += ` AND (part_code LIKE ? OR specification LIKE ?)`;
+            query += ` AND (p.part_code LIKE ? OR p.specification LIKE ?)`;
             const searchPattern = `%${search.trim()}%`;
             params.push(searchPattern, searchPattern);
         }
-        
+
         // カテゴリフィルター
         if (category && category.trim()) {
-            query += ` AND category = ?`;
+            query += ` AND p.category = ?`;
             params.push(category.trim());
         }
         
         // LIMIT句は動的パラメータを避けて直接埋め込み
         const limitNum = parseInt(limit) || 100;
         if (limitNum > 0 && limitNum <= 1000) {
-            query += ` ORDER BY part_code LIMIT ${limitNum}`;
+            query += ` ORDER BY p.part_code LIMIT ${limitNum}`;
         } else {
-            query += ` ORDER BY part_code LIMIT 100`;
+            query += ` ORDER BY p.part_code LIMIT 100`;
         }
         
         const [results] = await connection.execute(query, params);
@@ -207,20 +209,22 @@ router.get('/:code', authenticateToken, requireReadAccess, async (req, res) => {
         connection = await mysql.createConnection(dbConfig);
         
         const query = `
-            SELECT 
-                part_code,
-                specification,
-                unit,
-                lead_time_days,
-                safety_stock,
-                supplier,
-                category,
-                unit_price,
-                remarks,
-                created_at,
-                updated_at
-            FROM parts 
-            WHERE part_code = ? AND is_active = TRUE
+            SELECT
+                p.part_code,
+                p.specification,
+                p.unit,
+                p.lead_time_days,
+                p.safety_stock,
+                p.supplier,
+                p.category,
+                pc.category_name,
+                p.unit_price,
+                p.remarks,
+                p.created_at,
+                p.updated_at
+            FROM parts p
+            LEFT JOIN part_categories pc ON p.category = pc.category_code
+            WHERE p.part_code = ? AND p.is_active = TRUE
         `;
         
         const [results] = await connection.execute(query, [partCode]);

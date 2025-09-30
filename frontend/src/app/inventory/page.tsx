@@ -18,6 +18,7 @@ interface InventoryItem {
   safety_stock: number
   supplier: string | null
   category: string | null
+  category_name: string | null
   is_low_stock: boolean
   lead_time_days?: number
   unit_price?: number
@@ -28,6 +29,7 @@ interface PartDetail {
   part_code: string
   specification: string | null
   category: string | null
+  category_name: string | null
   supplier: string | null
   lead_time_days: number
   unit_price: number
@@ -931,9 +933,9 @@ function InventoryListContent() {
                       >
                         {item.part_code}
                       </div>
-                      {item.category && (
+                      {item.category_name && (
                         <div className="text-xs text-gray-500">
-                          {item.category}
+                          {item.category_name}
                         </div>
                       )}
                     </td>
@@ -1089,7 +1091,7 @@ function InventoryListContent() {
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700">カテゴリ</label>
-                            <div className="mt-1 text-sm text-gray-900">{partDetail.category || '未設定'}</div>
+                            <div className="mt-1 text-sm text-gray-900">{partDetail.category_name || partDetail.category || '未設定'}</div>
                           </div>
                           <div>
                             <label className="block text-sm font-medium text-gray-700">仕入先</label>

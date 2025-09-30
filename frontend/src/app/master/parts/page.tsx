@@ -15,6 +15,7 @@ interface Part {
   safety_stock: number
   supplier: string
   category: string
+  category_name: string
   unit_price: number
   remarks?: string
   created_at: string
@@ -444,7 +445,7 @@ export default function PartsPage() {
                     {part.specification || '-'}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900">
-                    {part.category}
+                    {part.category_name || part.category}
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-900">
                     {part.supplier || '-'}
