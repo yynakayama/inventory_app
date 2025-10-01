@@ -33,19 +33,17 @@ async function createReservations(connection, planId, productCode, plannedQuanti
     
     try {
         // BOM展開で必要部品と数量を取得（部品ごとに集計）
+        // bom_requirements VIEWを使用することで、無効な工程を自動的に除外
         const [bomResults] = await connection.execute(
-            `SELECT 
-                b.part_code,
-                SUM(b.quantity) as unit_quantity,
-                (SUM(b.quantity) * ?) as required_quantity,
-                p.specification as part_specification
-            FROM bom_items b
-            INNER JOIN parts p ON b.part_code = p.part_code
-            WHERE b.product_code = ? 
-            AND b.is_active = TRUE 
-            AND p.is_active = TRUE
-            GROUP BY b.part_code, p.specification
-            ORDER BY b.part_code`,
+            `SELECT
+                br.part_code,
+                SUM(br.unit_quantity) as unit_quantity,
+                (SUM(br.unit_quantity) * ?) as required_quantity,
+                br.part_specification
+            FROM bom_requirements br
+            WHERE br.product_code = ?
+            GROUP BY br.part_code, br.part_specification
+            ORDER BY br.part_code`,
             [plannedQuantity, productCode]
         );
         
@@ -62,7 +60,7 @@ async function createReservations(connection, planId, productCode, plannedQuanti
         
         for (const bomItem of bomResults) {
             const remarks = `生産計画ID:${planId} 製品:${productCode} での自動予約`;
-            
+
             const [result] = await connection.execute(
                 `INSERT INTO inventory_reservations (
                     production_plan_id,
@@ -71,7 +69,11 @@ async function createReservations(connection, planId, productCode, plannedQuanti
                     reservation_date,
                     remarks,
                     created_by
-                ) VALUES (?, ?, ?, NOW(), ?, ?)`,
+                ) VALUES (?, ?, ?, NOW(), ?, ?)
+                ON DUPLICATE KEY UPDATE
+                    reserved_quantity = VALUES(reserved_quantity),
+                    remarks = VALUES(remarks),
+                    updated_at = CURRENT_TIMESTAMP`,
                 [
                     planId,
                     bomItem.part_code,
